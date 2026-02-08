@@ -9,7 +9,7 @@ app.use(express.json());
 app.use("/location", locationRoutes);
 
 // Swagger Documentation
-setupSwagger(app);
+if (process.env.NODE_ENV === "development") setupSwagger(app);
 
 // Error handling middleware
 const errorHandler = (
