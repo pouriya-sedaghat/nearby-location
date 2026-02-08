@@ -1,6 +1,6 @@
 {
   "name": "nearby-location",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Microservice for storing user location and finding nearby users.",
   "main": "src/server.ts",
   "scripts": {
