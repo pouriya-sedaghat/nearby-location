@@ -7,7 +7,7 @@ const options = {
     openapi: "3.0.0",
     info: {
       title: "Nearby Location API",
-      version: "1.0.0",
+      version: "1.0.1",
       description: "Microservice to store user location and find nearby users",
     },
     servers: [
