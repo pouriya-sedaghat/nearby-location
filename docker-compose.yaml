@@ -3,15 +3,24 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: ${NODE_ENV:-production}
+    # image: nearby-location-nearby:latest
     container_name: nearby
     ports:
-      - "5000:5000"
-    env_file:
-      - .env
+      - "${PORT:-8080}:${PORT:-8080}"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=${PORT:-8080}
+      - BASE_URL=http://localhost:${PORT:-8080}
+      - MONGO_URL=mongodb://root:example@mongo:27017/nearby?authSource=admin
+      - RESTART_POLICY=${RESTART_POLICY:-unless-stopped}
+    # env_file:
+    #   - .env
     depends_on:
       - mongo
     networks:
       - nearby-net
+    restart: ${RESTART_POLICY:-unless-stopped}
 
   mongo:
     image: mongo:6.0
@@ -21,8 +30,6 @@ services:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
       MONGO_INITDB_DATABASE: nearby
-    ports:
-      - "27017:27017"
     volumes:
       - mongo-data:/data/db
     networks:

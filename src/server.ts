@@ -2,9 +2,12 @@ import dotenv from "dotenv";
 import app from "./app";
 import db from "./utils/db";
 
-dotenv.config({ path: [`.env.${process.env.NODE_ENV}`, ".env"] });
+dotenv.config({
+  path: [`.env.${process.env.NODE_ENV}`, ".env"],
+  override: false,
+});
 
-const PORT = process.env.PORT ?? 3000;
+const PORT = process.env.PORT ?? 5000;
 
 const server = async () => {
   try {

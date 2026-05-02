@@ -17,11 +17,16 @@ export function setupSwagger(app: Express) {
       },
       servers: [
         {
-          url: "http://localhost:5000",
+          url:
+            process.env.BASE_URL ??
+            `http://localhost:${process.env.PORT ?? 5000}`,
+          description:
+            "For Docker (compiled JS) or local development with ts-node",
         },
       ],
     },
-    apis: ["./src/routes/*.ts"],
+    apis: ["./dist/routes/*.js"], // For Docker (compiled JS)
+    // apis: ["./src/routes/*.ts"], // For local development with ts-node
   };
 
   const specs = swaggerJsdoc(options);
