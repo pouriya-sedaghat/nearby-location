@@ -52,10 +52,10 @@ COPY .env .env
 RUN apk del python3 make g++ && \
     rm -rf /root/.npm /tmp/*
 
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
-USER nodejs
+RUN addgroup -g 1001 -S nearby && \
+    adduser -S nearby -u 1001 && \
+    chown -R nearby:nearby /app
+USER nearby
 
 EXPOSE ${PORT:-5000}
 CMD ["node", "dist/server.js"]

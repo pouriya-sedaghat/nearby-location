@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: ${NODE_ENV:-production}
-    # image: nearby-location-nearby:latest
+    # image: nearby:latest
     container_name: nearby
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
@@ -12,28 +12,46 @@ services:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=${PORT:-8080}
       - BASE_URL=http://localhost:${PORT:-8080}
-      - MONGO_URL=mongodb://root:example@mongo:27017/nearby?authSource=admin
+      - MONGO_URL=mongodb://nearby:nearby_pass_123@mongo:27017/nearby?authSource=nearby
       - RESTART_POLICY=${RESTART_POLICY:-unless-stopped}
     # env_file:
     #   - .env
+    user: "1001:1001"
     depends_on:
       - mongo
     networks:
       - nearby-net
     restart: ${RESTART_POLICY:-unless-stopped}
+    # healthcheck:
+    #   test:
+    #     [
+    #       "CMD",
+    #       "node",
+    #       "-e",
+    #       "require('http').get('http://localhost:${PORT:-8080}/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+    #     ]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
 
   mongo:
     image: mongo:6.0
     container_name: nearby-mongo
-    restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
       MONGO_INITDB_DATABASE: nearby
     volumes:
       - mongo-data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
       - nearby-net
+    restart: ${RESTART_POLICY:-unless-stopped}
+    # healthcheck:
+    #   test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
 
 networks:
   nearby-net:
