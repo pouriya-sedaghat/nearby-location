@@ -103,6 +103,7 @@ export const findNearby = async (req: Request, res: Response) => {
             {
               $project: {
                 userId: 1,
+                location: 1,
                 distance: 1,
                 updatedAt: 1,
               },
