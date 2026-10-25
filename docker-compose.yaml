@@ -1,0 +1,85 @@
+name: nearby-vm
+
+services:
+  nearby:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: nearby-location:1.0.0
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
+    environment:
+      NODE_ENV: production
+      TZ: UTC
+      PORT: ${PORT:-8080}
+      BASE_URL: ${BASE_URL:-/}
+      DATABASE_URL: "postgresql://nearby:${POSTGRES_PASSWORD:?Run scripts/init-env.sh first}@postgres:5432/nearby"
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+      SWAGGER_TRY_IT_OUT_ENABLED: ${SWAGGER_TRY_IT_OUT_ENABLED:-true}
+      SWAGGER_AUTH_USERNAME: ${SWAGGER_AUTH_USERNAME:-docs_operator}
+      SWAGGER_AUTH_PASSWORD: ${SWAGGER_AUTH_PASSWORD:?Run scripts/init-env.sh first}
+      LOCATION_TTL_DAYS: ${LOCATION_TTL_DAYS:-7}
+      CLEANUP_CRON_SCHEDULE: ${CLEANUP_CRON_SCHEDULE:-0 3 * * *}
+      CLEANUP_BATCH_SIZE: ${CLEANUP_BATCH_SIZE:-5000}
+      DEFAULT_MAX_DISTANCE_METERS: ${DEFAULT_MAX_DISTANCE_METERS:-10000}
+      MAX_MAX_DISTANCE_METERS: ${MAX_MAX_DISTANCE_METERS:-100000}
+      PG_POOL_MAX: ${PG_POOL_MAX:-10}
+      PG_IDLE_TIMEOUT_MS: ${PG_IDLE_TIMEOUT_MS:-30000}
+      PG_CONN_TIMEOUT_MS: ${PG_CONN_TIMEOUT_MS:-5000}
+      PG_STATEMENT_TIMEOUT_MS: ${PG_STATEMENT_TIMEOUT_MS:-2000}
+      PG_CONNECT_RETRIES: ${PG_CONNECT_RETRIES:-10}
+      PG_CONNECT_BASE_DELAY_MS: ${PG_CONNECT_BASE_DELAY_MS:-1000}
+      PG_SSL: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:'+process.env.PORT+'/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  postgres:
+    image: postgis/postgis:16-3.6-alpine
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      TZ: UTC
+      POSTGRES_USER: nearby
+      POSTGRES_DB: nearby
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/init-env.sh first}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U nearby -d nearby"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  pgdata:

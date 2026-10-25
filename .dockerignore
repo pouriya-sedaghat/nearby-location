@@ -1,0 +1,18 @@
+# Only inputs required by the build and runtime stages enter the build context.
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
+!src/**
+!migrations/
+!migrations/*.js
+!scripts/
+!scripts/run-migration.js
+!docker-entrypoint.sh
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/*.dump
