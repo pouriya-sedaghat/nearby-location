@@ -1,12 +1,17 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { createTestApp } = require("./fixtures/app.factory");
+process.env.NODE_ENV = "test";
+process.env.LOG_LEVEL = "error";
 const initialTime = Date.parse("2026-10-25T12:00:00Z");
 let currentTime = initialTime, clockReads = 0, server, url, calls;
-const { app, locations, database, config } = createTestApp({
-  SWAGGER_ENABLED: "true", SWAGGER_AUTH_USERNAME: "language_docs",
-  SWAGGER_AUTH_PASSWORD: "language-test-only-password-012345678901",
-}, { clock: () => { clockReads++; return currentTime; } });
+const { config } = require("../dist/config/env");
+Object.assign(config, { SWAGGER_ENABLED: true, SWAGGER_AUTH_USERNAME: "language_docs",
+  SWAGGER_AUTH_PASSWORD: "language-test-only-password-012345678901", PRIVACY_API_ENABLED: true,
+  PRIVACY_AUTH_TOKEN: "privacy-test-only-password-012345678901" });
+const locations = require("../dist/models/location.model").default;
+const database = require("../dist/utils/db").default;
+require("../dist/utils/lifecycle").lifecycle.markReady();
+const app = require("../dist/app").createApp({ clock: () => { clockReads++; return currentTime; } });
 const coordinate = { lat: 35.6892, lng: 51.389 };
 const stored = { userId: "sample", coordinate, distance: 12.5, updatedAt: new Date(initialTime - 60000) };
 const auth = "Basic " + Buffer.from(config.SWAGGER_AUTH_USERNAME + ":" + config.SWAGGER_AUTH_PASSWORD).toString("base64");
@@ -24,7 +29,7 @@ test.beforeEach(() => {
   locations.findNearby = async (...args) => { calls.push(args); return { totalCount: 1, data: [stored] }; };
   database.ping = async () => {};
 });
-test.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+test.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await database.disconnect(); });
 
 test("Accept-Language negotiates supported regions and quality weights with an English fallback", async () => {
   for (const [header, expected] of [[undefined, "en"], ["fa", "fa"], ["fa-IR", "fa"],
@@ -116,7 +121,9 @@ test("internal errors and unknown routes are translated while health status code
   for (const [path, status] of [["live", "ok"], ["ready", "ready"]]) {
     const response = await fetch(url + "/health/" + path, { headers: { "Accept-Language": "fa" } });
     assert.equal(response.headers.get("content-language"), "fa");
-    assert.deepEqual(await response.json(), { success: true, status });
+    const health = await response.json();
+    assert.equal(health.success, true); assert.equal(health.status, status);
+    if (path === "ready") assert.equal(health.circuit, "closed");
   }
   database.ping = async () => { throw new Error("private"); };
   const ready = await fetch(url + "/health/ready", { headers: { "Accept-Language": "fa" } });
@@ -152,4 +159,39 @@ test("documentation authentication errors follow the request language and succes
     assert.equal(allowed.headers.get("content-language"), "en");
     await allowed.text();
   }
+});
+
+test("UTF-8, compressed UTF-8 and malformed UTF-16 identifiers cannot alias stored identities", async () => {
+  const json = '{"userId":"bad-';
+  const invalidUtf8 = Buffer.concat([Buffer.from(json), Buffer.from([0xff]), Buffer.from('","coordinate":{"lat":0,"lng":0}}')]);
+  const invalidUtf16 = Buffer.concat([Buffer.from(json, "utf16le"), Buffer.from([0x00, 0xd8]), Buffer.from('","coordinate":{"lat":0,"lng":0}}', "utf16le")]);
+  for (const [body, extra] of [[invalidUtf8, {}], [require("node:zlib").gzipSync(invalidUtf8), { "Content-Encoding": "gzip" }],
+    [invalidUtf16, { "Content-Type": "application/json; charset=utf-16le" }]]) {
+    const response = await fetch(url + "/location/upsert", { method: "POST", headers: { "Content-Type": "application/json", "Accept-Language": "fa", ...extra }, body });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { success: false, message: "بدنه JSON نامعتبر است" });
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("authentication, cursor errors and privacy validation support Persian without weakening authorization", async () => {
+  const previous = config.LOCATION_AUTH_MODE;
+  config.LOCATION_AUTH_MODE = "bearer";
+  config.LOCATION_AUTH_TOKEN = "test-location-token-long-enough-for-header";
+  try {
+    const denied = await post("/location/upsert", { userId: "sample", coordinate }, "fa");
+    assert.equal(denied.status, 401);
+    assert.deepEqual(await denied.json(), { success: false, message: "دسترسی غیرمجاز است" });
+  } finally { config.LOCATION_AUTH_MODE = previous; }
+  const cursor = await post("/location/nearby", { coordinate, cursor: "invalid" }, "fa");
+  assert.equal(cursor.status, 400);
+  assert.match((await cursor.json()).message, /نشانگر/);
+  const privacy = await post("/privacy/location/delete-exact", { userId: "sample", match: "exact" }, "fa", {
+    Authorization: "Bearer " + config.PRIVACY_AUTH_TOKEN,
+  });
+  assert.equal(privacy.status, 400);
+  const errors = await privacy.json();
+  assert.equal(errors.message, "بدنه درخواست نامعتبر است");
+  assert.match(JSON.stringify(errors.errors), /[\u0600-\u06ff]/);
+  assert.equal(calls.length, 0);
 });

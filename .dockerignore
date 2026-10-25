@@ -1,18 +1,18 @@
-# Only inputs required by the build and runtime stages enter the build context.
-**
-!Dockerfile
-!package.json
-!package-lock.json
-!tsconfig.json
-!src/
-!src/**
-!migrations/
-!migrations/*.js
-!scripts/
-!scripts/run-migration.js
-!docker-entrypoint.sh
-**/.env
-**/.env.*
-**/*.key
-**/*.pem
-**/*.dump
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.*
+npm-debug.log*
+*.zip
+vm-reports
+
+# Local Kubernetes secret material (also ignored by Git)
+deploy/kubernetes/secret.yaml
+
+# Local database exports and private key material
+*.dump
+*.key
+*.pem
+coverage/

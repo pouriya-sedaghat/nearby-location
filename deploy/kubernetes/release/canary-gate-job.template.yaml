@@ -1,0 +1,83 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: nearby-location-canary-gate-
+  labels:
+    app.kubernetes.io/name: nearby-location
+    app.kubernetes.io/component: canary-gate
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 900
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nearby-location
+        nearby-location/access: location-client
+        app.kubernetes.io/component: canary-gate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: canary-gate
+          image: __IMAGE_REF__
+          imagePullPolicy: IfNotPresent
+          command: ["node", "scripts/canary-compare.js"]
+          env:
+            - name: BENCHMARK_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: nearby-location-secrets
+                  key: LOCATION_AUTH_TOKEN
+                  optional: true
+            - name: CANARY_STABLE_BASE_URL
+              value: "http://nearby-location"
+            - name: CANARY_CANDIDATE_BASE_URL
+              value: "http://nearby-location-canary"
+            - name: CANARY_ROUNDS
+              value: "__CANARY_ROUNDS__"
+            - name: BENCHMARK_REQUEST_MODE
+              value: "__BENCHMARK_REQUEST_MODE__"
+            - name: BENCHMARK_DURATION_SECONDS
+              value: "__BENCHMARK_DURATION_SECONDS__"
+            - name: BENCHMARK_WARMUP_SECONDS
+              value: "__BENCHMARK_WARMUP_SECONDS__"
+            - name: BENCHMARK_CONCURRENCY
+              value: "__BENCHMARK_CONCURRENCY__"
+            - name: BENCHMARK_MAX_DISTANCE_METERS
+              value: "__BENCHMARK_MAX_DISTANCE_METERS__"
+            - name: BENCHMARK_LAT
+              value: "__BENCHMARK_LAT__"
+            - name: BENCHMARK_LNG
+              value: "__BENCHMARK_LNG__"
+            - name: BENCHMARK_PAGE_SIZE
+              value: "__BENCHMARK_PAGE_SIZE__"
+            - name: CANARY_MAX_ERROR_RATE
+              value: "__CANARY_MAX_ERROR_RATE__"
+            - name: CANARY_MAX_ERROR_RATE_DELTA
+              value: "__CANARY_MAX_ERROR_RATE_DELTA__"
+            - name: CANARY_MAX_REJECTION_RATE
+              value: "__CANARY_MAX_REJECTION_RATE__"
+            - name: CANARY_MAX_REJECTION_RATE_DELTA
+              value: "__CANARY_MAX_REJECTION_RATE_DELTA__"
+            - name: CANARY_MAX_P95_RATIO
+              value: "__CANARY_MAX_P95_RATIO__"
+            - name: CANARY_MAX_P99_RATIO
+              value: "__CANARY_MAX_P99_RATIO__"
+            - name: CANARY_MIN_RPS_RATIO
+              value: "__CANARY_MIN_RPS_RATIO__"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

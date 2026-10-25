@@ -1,38 +1,31 @@
 import express, { Express } from "express";
-import swaggerUi from "swagger-ui-express";
-import type { AppConfig } from "./env";
+import { config } from "./env";
 import { swaggerAuthorizationMiddleware } from "../middleware/swagger-auth.middleware";
-import { createOpenApiSpec } from "./openapi";
-export { createOpenApiSpec } from "./openapi";
+import { buildOpenApiSpec } from "./openapi";
+export const createOpenApiSpec = (options: { runtime?: boolean } = {}) => buildOpenApiSpec(config, options);
 
-export function setupSwagger(app: Express, config: AppConfig) {
+export function setupSwagger(app: Express) {
   if (!config.SWAGGER_ENABLED) return;
+  const swaggerUi = require("swagger-ui-express");
+  const specs = createOpenApiSpec({ runtime: true });
   const router = express.Router();
-  const spec = createOpenApiSpec(config);
-  router.use(swaggerAuthorizationMiddleware(config));
+  router.use(swaggerAuthorizationMiddleware());
   router.use((_req, res, next) => { res.setHeader("Content-Language", "en"); next(); });
-  router.get("/openapi.json", (_req, res) => res.json(spec));
+  router.get("/openapi.json", (_req, res) => res.json(specs));
   const options = {
-    customSiteTitle: "Nearby Location API " + spec.info.version,
-    customCss: [
-      ".swagger-ui .topbar { background: #13263b; }",
-      ".swagger-ui .wrapper { max-width: 1440px; }",
-      ".swagger-ui .info { margin: 30px 0; }",
-      ".swagger-ui .info .title { color: #13263b; }",
-      ".swagger-ui .opblock { border-radius: 8px; }",
-    ].join("\n"),
+    customSiteTitle: "Nearby Location API " + specs.info.version,
     swaggerOptions: {
-      url: "./openapi.json", validatorUrl: null,
-      deepLinking: true, displayOperationId: true,
-      displayRequestDuration: true, filter: true,
-      docExpansion: "list", defaultModelsExpandDepth: 1,
-      defaultModelExpandDepth: 2, defaultModelRendering: "example",
-      showCommonExtensions: true, requestSnippetsEnabled: true,
+      url: "./openapi.json",
+      validatorUrl: null,
+      persistAuthorization: false,
+      queryConfigEnabled: false,
       tryItOutEnabled: config.SWAGGER_TRY_IT_OUT_ENABLED,
-      persistAuthorization: false, queryConfigEnabled: false,
+      deepLinking: true, displayOperationId: true, displayRequestDuration: true,
+      filter: true, requestSnippetsEnabled: true, docExpansion: "list",
       supportedSubmitMethods: config.SWAGGER_TRY_IT_OUT_ENABLED ? ["get", "post"] : [],
     },
   };
   router.use(swaggerUi.serveFiles(undefined, options), swaggerUi.setup(null, options));
+
   app.use("/api-docs", router);
 }

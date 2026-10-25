@@ -1,0 +1,64 @@
+# Optional retention-health audit. Intentionally excluded from kustomization.yaml.
+# Schedule it after the normal cleanup window and route failed Job/CronJob status
+# into your cluster monitoring. Output is aggregate only (no user IDs/coordinates).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nearby-location-privacy-audit
+  labels:
+    app.kubernetes.io/name: nearby-location
+    app.kubernetes.io/component: privacy-audit
+spec:
+  schedule: "0 5 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: nearby-location
+            app.kubernetes.io/component: privacy-audit
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: privacy-audit
+              image: nearby-location:2.14.0
+              imagePullPolicy: IfNotPresent
+              command: ["node", "scripts/audit-privacy-retention.js"]
+              envFrom:
+                - configMapRef:
+                    name: nearby-location-config
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: nearby-location-secrets
+                      key: DATABASE_URL
+                - name: PRIVACY_AUDIT_CLEANUP_GRACE_HOURS
+                  value: "48"
+                - name: PRIVACY_AUDIT_MAX_OVERDUE_ROWS
+                  value: "0"
+                - name: PRIVACY_AUDIT_MAX_FUTURE_ROWS
+                  value: "0"
+                - name: PRIVACY_AUDIT_FUTURE_TOLERANCE_MINUTES
+                  value: "5"
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]

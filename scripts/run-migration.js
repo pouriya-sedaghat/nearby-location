@@ -1,6 +1,7 @@
 const { spawnSync } = require("child_process");
 const path = require("path");
 const dotenv = require("dotenv");
+const { migrationTlsArgs } = require("./lib/postgres-options");
 
 dotenv.config({
   path: ".env",
@@ -20,14 +21,7 @@ const cli = path.resolve(
   "../node_modules/node-pg-migrate/bin/node-pg-migrate.js",
 );
 
-const migrationArgs = [cli, action, ...args];
-// node-pg-migrate's CLI accepts certificate policy independently of DATABASE_URL.
-if (process.env.PG_SSL === "true"
-  && !args.some((arg) => /^--(?:no-)?reject-unauthorized(?:=|$)/.test(arg))) {
-  migrationArgs.push(`--reject-unauthorized=${process.env.PG_SSL_REJECT_UNAUTHORIZED !== "false"}`);
-}
-
-const result = spawnSync(process.execPath, migrationArgs, {
+const result = spawnSync(process.execPath, [cli, action, ...args, ...migrationTlsArgs(args)], {
   stdio: "inherit",
   env: process.env,
 });

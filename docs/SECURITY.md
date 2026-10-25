@@ -1,57 +1,70 @@
-# Security and access boundaries
+# Security and trust boundaries
 
-[Documentation index](../README.md)
+[Documentation index](README.md) · [API](API.md) · [Privacy](PRIVACY_AND_RETENTION.md)
 
-## API access
+## Caller responsibilities
 
-The four existing routes and their access model are preserved. Location endpoints do not authenticate callers or bind `userId` to a verified identity. A caller allowed through the deployment network can write that identifier's location. Nearby responses include stored coordinates; `excludeUserId` is a result filter, not authorization.
+The service handles precise location data. Its bearer token establishes trusted service access but does not associate the request with an end user. The calling backend must authenticate the user, verify permission to publish the supplied `userId`, honor consent/visibility rules, and authorize disclosure of matched coordinates.
 
-Use the company's authenticated gateway/access layer for caller identity, identifier ownership, read permission and traffic limits. The supplied Compose mapping exposes HTTP only at VM loopback; the database has no published host port. Swagger Basic Auth protects documentation only. See [Ubuntu VM deployment](VM_UBUNTU.md) for the private SSH tunnel and gateway connection.
+There is no tenant discriminator, per-user access-control list, consent field, or ownership binding in the database/query. `excludeUserId` removes one result; it is not an authorization mechanism. A shared service token grants access to its entire surface. Do not expose such credentials to untrusted browsers/devices.
 
-## Credentials and configuration
+## Authentication surfaces
 
-The single private `.env` is generated with independent database and documentation passwords and mode `0600`. The initializer refuses existing files, directories and symlinks, publishes a completed file atomically, and does not print credentials. The shipped `.env.example` contains empty passwords. Keep the existing `.env` and database role password together across restarts and upgrades.
+| Surface | Configuration | Boundary |
+|---|---|---|
+| `/location/*` | `LOCATION_AUTH_MODE=bearer` and primary/optional previous token | Trusted location backend |
+| `/metrics` | `METRICS_AUTH_MODE=bearer` and metrics token | Authorized scraper/operator |
+| `/privacy/*` | `PRIVACY_API_ENABLED=true` and dedicated privacy token | Account/privacy control plane |
+| `/api-docs/*` | Swagger enabled; dedicated username/password outside development | Documentation operator; separate HTTP Basic auth |
+| `/health/*` | No application token | Restrict exposure through network/ingress as appropriate |
 
-Direct execution requires a valid PostgreSQL `DATABASE_URL`; there is no built-in credential fallback. Validation rejects malformed URIs without printing their supplied contents. Use URL-encoded credentials and keep TLS options consistent. With explicit `PG_SSL=true`, certificate verification defaults to enabled. URL/driver TLS options can also affect the connection; see [Configuration](CONFIGURATION.md).
+Use independent random credentials, at least 32 characters, and verified transport. Bearer tokens must be printable ASCII without spaces. Authentication runs before body parsing for protected API surfaces. Credential equality uses timing-safe comparisons; failures are non-enumerating 401 responses. See [rotation and rollout](OPERATIONS.md#credential-and-cursor-key-rotation).
 
-The source packager accepts explicit release paths and supported formats; unrelated exports, private environment files and key formats are excluded. Docker's build-context allowlist includes only required build/runtime inputs. These controls do not detect a secret manually written inside a legitimate source file. Review source before release and keep location dumps outside the source tree in protected storage.
+Disabled location/metrics modes are compatibility/local defaults. Production must deliberately enable them or enforce an equivalent authenticated private service boundary. The privacy API always requires its dedicated token when enabled.
 
-Docker administrators can inspect container environments. The Compose bootstrap role remains the database owner used for migration/runtime connections, preserving the existing VM database. Companies requiring separate restricted roles must plan and validate those privileges with their database administrator. No existing role, ownership or stored credential is silently changed by this source refactor.
+## Transport, proxies, and networking
 
-## Documentation authentication
+The API listens with HTTP; the application does not terminate TLS. Provision verified TLS at the controlled gateway/service-mesh boundary and restrict direct API access. For database TLS use [the unambiguous configuration](CONFIGURATION.md#database), provision trust, and retain certificate verification.
 
-Enabled documentation outside development requires a paired dedicated username/password; passwords are 32-256 printable non-space ASCII characters. Development also requires login when the pair is configured. Use Basic Auth only over HTTPS or the protected tunnel.
+`HTTP_TRUST_PROXY=true` sets Express's broad proxy trust flag. Only enable it when traffic necessarily arrives through controlled proxies that sanitize forwarding headers. The runtime does not support a configured trusted-hop/subnet list. With local IP-based rate limiting, an uncontrolled proxy path can spoof the client identity used by the limiter.
 
-The middleware protects the UI, its assets and live specification and sends no-store, nosniff and noindex headers. Comparisons use fixed-length hashes and timing-safe equality. UI authorization persistence and external validation are disabled. UI initialization options are isolated per app instance, so another instance cannot alter its execution settings. Express's framework version header is disabled.
+The example Kubernetes NetworkPolicy limits ingress by labels and TCP port; it does not isolate HTTP paths. Separate credentials and gateway policy protect privacy/metrics. The supplied policy has no egress rules. Add cluster-specific DB/DNS/monitoring requirements through your platform network process.
 
-## Input and error handling
+The production image runs non-root. Kubernetes and isolated evaluation examples use read-only root filesystems, dropped capabilities, and no privilege escalation; cluster examples avoid API token automount. Verify manifests and policy enforcement rather than assuming the templates alone establish controls.
 
-Schemas validate identifiers, coordinates, radius and safe pagination. Malformed Unicode and NUL identifiers are rejected. Raw UTF-8 is verified before permissive decoding can collapse distinct malformed byte sequences into one identifier; this also applies after gzip decompression. Valid Unicode and the supported UTF-16 transports remain accepted. JSON parsing retains the 32 KiB limit, including decompressed JSON. Queries bind values instead of interpolating user input. Search and cleanup share the repository TTL.
+## Input, SQL, and resource protection
 
-Validation preserves the public `_errors` tree and documented default English messages, with Persian translations selected through `Accept-Language`. Detailed library-generated field wording may differ after a validator update; clients should use HTTP status, field paths and response structure rather than parsing translated strings. Parser and internal responses do not echo submitted bodies or database errors. Language and the reference clock are request-local; no client timestamp is trusted and no global validator locale is changed. `Vary: Accept-Language` distinguishes language variants in shared caches. Operational logs still require restricted access.
+Coordinate bounds, controlled ID characters, radius/page limits, safe offsets, cursor length, and a 32 KB JSON limit bound input. Parameterized SQL separates values from query structure. Foreground statements and connections have timeouts; cleanup uses separate transaction-local limits.
 
-## Dependency audit
+Concurrency/pool-pressure/circuit controls protect nearby/upsert, with optional adaptive limits. The optional rate limiter is local to a replica and keyed by IP/workload, not authenticated user. Privacy deletion uses its own drain/error handling and bypasses location admission, so apply control-plane network/gateway limits separately.
 
-Docker builds and documented local installs use `npm ci --ignore-scripts`. The locked graph works without dependency install hooks, so these hooks, including optional installation telemetry, do not run. Build, test, start and migration commands remain explicit project operations. If a future dependency requires an install hook, review that requirement before changing the installation policy. See [npm ci configuration](https://docs.npmjs.com/cli/v11/commands/npm-ci/#ignore-scripts).
+Client disconnect does not cancel database work. Capacity stays allocated until a handler finishes, and platform shutdown has a total deadline.
 
-Audit snapshot on `2026-10-25`, after a clean locked install:
+## Cursors and documentation
 
-| Audit scope | Critical | High | Moderate | Low | Total |
-| --- | --- | --- | --- | --- | --- |
-| Full dependency graph | 0 | 0 | 0 | 0 | 0 |
-| Production dependencies | 0 | 0 | 0 | 0 | 0 |
+Signed cursors bind search context and protect sort/count/time metadata with HMAC-SHA256. Share keys across replicas and require signatures for a deliberate production policy. Cursor payloads are base64url text and may contain identifiers; they are readable, not encrypted. Avoid copying tokens into analytics or URLs that produce access logs.
 
-The graph now uses Zod 4.6.7 and node-cron 4.6.0. Compatibility and lifecycle tests cover the library migrations. The production graph includes the migration CLI as an explicit runtime dependency and excludes the TypeScript toolchain, development watcher and contract validators. Swagger no longer needs an annotation parser. Development uses tsx; type definitions match Node.js 24 and Express 4.
+Production Swagger defaults off. If enabled, use dedicated Basic credentials and view-only UI by default. Disabling Try it out only disables UI execution; it does not disable the API itself. The portable OpenAPI file documents optional features even when absent in the running service.
 
-An audit result describes advisories known to the registry for this dependency graph at that time. It does not establish zero application, operating-system or container-image vulnerabilities. No container/OS vulnerability scan was run in this environment. Refresh during release validation:
+## Logging and secrets
 
-```bash
-npm audit
-npm audit --omit=dev
-```
+The application logs normalized routes rather than raw URLs, and omits request bodies. Production error messages/stacks are suppressed; sensitive named fields are recursively redacted. Do not add raw query parameters, IDs, coordinates, tokens, cursors, or SQL diagnostics to logging. Database/gateway/APM collection can still expose data and requires independent review.
 
-Technical references:
+Store secrets outside Git and release archives. Example files document shape only. Source packaging excludes known environment/Secret files but is not a general secret scanner; review the full working tree before packaging. Kubernetes environment secrets require a rollout to take effect. Restrict administrative DB access and prefer separate runtime/migration identities after adapting deployment wiring.
 
-- [Zod migration guide](https://zod.dev/v4/changelog)
-- [Node-cron task lifecycle](https://www.nodecron.com/api-reference.html)
-- [Docker build practices](https://docs.docker.com/build/building/best-practices/)
+For dependency changes, retain a reproducible lockfile and inspect CI audit results for the exact release. The CI audit is a validation step, not a permanent vulnerability status.
+
+## Before production
+
+Confirm caller authorization, verified transport, secret ownership/rotation, protected scrapes/privacy/docs, safe proxy headers, network controls, sensitive-log handling, retention, backup policy, and incident routing. Record concrete environment evidence in [production acceptance](PRODUCTION_READINESS.md). Use [the location incident runbook](runbooks/LOCATION_PRIVACY_INCIDENT.md) for exposure or compromised credentials.
+
+Source: [auth middleware](../src/middleware/auth.middleware.ts), [auth utility](../src/utils/auth-core.ts), [Swagger auth](../src/middleware/swagger-auth.middleware.ts), [app](../src/app.ts), [logger](../src/utils/logger.ts), [deployment manifests](../deploy/kubernetes).
+
+
+## Installation and release controls
+
+Docker, CI and documented installs use `npm ci --ignore-scripts`; the reviewed graph does not require dependency install hooks. Explicit project builds, tests, migrations and runtime commands still run. Production images use locked production dependencies and the built-in non-root Node user, without compiler or PostgreSQL client tooling.
+
+Body decoding verifies UTF-8 and UTF-16 before identifier validation, including compressed input. Per-request language selection does not mutate global validator locale; response keys and machine codes stay stable. HTTP metric methods/routes are normalized to bounded values. Release image and namespace inputs are validated before YAML rendering or cluster changes. The source packager uses an explicit allowlist and rejects supported-path symlinks, while excluding live secrets, exports and build output.
+
+See [Release review](RELEASE_REVIEW.md) for the dated dependency audit, executed tests and remaining acceptance work.

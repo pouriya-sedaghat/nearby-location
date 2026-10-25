@@ -1,0 +1,48 @@
+rule_files:
+  - rules.yml
+evaluation_interval: 1m
+fuzzy_compare: true
+tests:
+  - name: Healthy traffic without any error or rejection series
+    interval: 1m
+    input_series:
+      - series: 'nearby_http_requests_total{route="/location/nearby",status="200",method="POST"}'
+        values: '0+60x12'
+    promql_expr_test:
+      - expr: nearby:slo_error_ratio:5m
+        eval_time: 10m
+        exp_samples: [{labels: 'nearby:slo_error_ratio:5m', value: 0}]
+      - expr: nearby:slo_error_ratio:3d
+        eval_time: 10m
+        exp_samples: [{labels: 'nearby:slo_error_ratio:3d', value: 0}]
+      - expr: nearby:load_shed_ratio:5m
+        eval_time: 10m
+        exp_samples: [{labels: 'nearby:load_shed_ratio:5m', value: 0}]
+      - expr: nearby:slo_availability_ratio:5m
+        eval_time: 10m
+        exp_samples: [{labels: 'nearby:slo_availability_ratio:5m', value: 1}]
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: NearbyErrorBudgetFastBurn
+        exp_alerts: []
+  - name: Error traffic retains its real rate
+    interval: 1m
+    input_series:
+      - series: 'nearby_http_requests_total{route="/location/nearby",status="200",method="POST"}'
+        values: '0+90x12'
+      - series: 'nearby_http_requests_total{route="/location/nearby",status="503",method="POST"}'
+        values: '0+10x12'
+    promql_expr_test:
+      - expr: nearby:slo_error_ratio:5m
+        eval_time: 10m
+        exp_samples: [{labels: 'nearby:slo_error_ratio:5m', value: 0.1}]
+      - expr: nearby:slo_burn_rate:5m
+        eval_time: 10m
+        exp_samples: [{labels: 'nearby:slo_burn_rate:5m', value: 100}]
+  - name: Missing traffic is not reported as healthy
+    interval: 1m
+    input_series: []
+    promql_expr_test:
+      - expr: nearby:slo_availability_ratio:5m
+        eval_time: 10m
+        exp_samples: []

@@ -1,0 +1,19 @@
+# Separate canary Service. Traffic splitting must be performed by your gateway,
+# ingress controller or service mesh; the stable Service will not select this.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nearby-location-canary
+  labels:
+    app.kubernetes.io/name: nearby-location-canary
+    app.kubernetes.io/part-of: nearby-location
+    app.kubernetes.io/track: canary
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nearby-location-canary
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

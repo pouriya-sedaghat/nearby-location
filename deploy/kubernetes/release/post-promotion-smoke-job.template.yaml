@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: nearby-location-smoke-
+  labels:
+    app.kubernetes.io/name: nearby-location
+    app.kubernetes.io/component: post-promotion-smoke
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nearby-location
+        nearby-location/access: location-client
+        app.kubernetes.io/component: post-promotion-smoke
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: smoke
+          image: __IMAGE_REF__
+          imagePullPolicy: IfNotPresent
+          command: ["node", "scripts/benchmark-http.js"]
+          env:
+            - name: BENCHMARK_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: nearby-location-secrets
+                  key: LOCATION_AUTH_TOKEN
+                  optional: true
+            - name: BENCHMARK_BASE_URL
+              value: "http://nearby-location"
+            - name: BENCHMARK_REQUEST_MODE
+              value: "cursor_first"
+            - name: BENCHMARK_DURATION_SECONDS
+              value: "5"
+            - name: BENCHMARK_WARMUP_SECONDS
+              value: "1"
+            - name: BENCHMARK_CONCURRENCY
+              value: "5"
+            - name: BENCHMARK_LAT
+              value: "__BENCHMARK_LAT__"
+            - name: BENCHMARK_LNG
+              value: "__BENCHMARK_LNG__"
+            - name: BENCHMARK_MAX_DISTANCE_METERS
+              value: "__BENCHMARK_MAX_DISTANCE_METERS__"
+            - name: BENCHMARK_PAGE_SIZE
+              value: "__BENCHMARK_PAGE_SIZE__"
+            - name: BENCHMARK_MAX_ERROR_RATE
+              value: "0"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

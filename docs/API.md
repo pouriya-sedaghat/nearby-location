@@ -1,242 +1,271 @@
-# API reference
+# API contract
 
-[Documentation index](../README.md)
+[Documentation index](README.md) · [OpenAPI JSON](openapi.json) · [Security](SECURITY.md)
 
-## General rules
+## Conventions
 
-Examples use `http://localhost:8080`. Location requests use POST with `Content-Type: application/json`. The JSON parser limit is 32 KiB. Main endpoint responses are JSON and contain `success`.
+Default application port: **8080**. Location and privacy commands use JSON over HTTP POST. Coordinates are WGS84 decimal degrees; distances and radii are meters. Timestamps serialize as ISO date-time strings. Responses include `x-request-id`, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`.
 
-The service has no built-in location authentication. Identifier ownership must be checked by the access layer; see [Security](SECURITY.md).
+The service accepts a supplied request ID matching `[A-Za-z0-9._-]{1,128}` or generates a UUID. Use it for correlation without embedding user identifiers. JSON parsing has a 32 KB limit. Upsert and nearby schemas strip unknown object fields. Normalized erasure rejects `match` and strips other unknown fields; exact erasure rejects every unknown field. Unknown fields are never persisted.
 
-| Method and path | Input | Successful result |
-| --- | --- | --- |
-| `POST /location/upsert` | Identifier and coordinates | 200; stores one current location |
-| `POST /location/nearby` | Center and options | 200; results and pagination metadata |
-| `GET /health/live` | None | 200; `status: "ok"` |
-| `GET /health/ready` | None | 200; `status: "ready"` |
+The examples below use `http://localhost:8080` and a protected service with `LOCATION_AUTH_TOKEN` supplied securely in the shell environment. Local development permits omitting the Authorization header when location authentication is disabled.
 
-## Response language
+## Endpoints
 
-Set the standard `Accept-Language` request header to `en` or `fa`. Missing or unsupported preferences fall back to English. Regional tags such as `fa-IR` and quality weights such as `fa;q=0.9,en;q=0.5` are supported. Language is selected independently for each request; there is no global locale, saved user preference, query option or environment setting.
+| Method | Path | Success | Authentication / availability |
+|---|---|---|---|
+| POST | `/location/upsert` | 200 JSON | Location bearer token when enabled |
+| POST | `/location/nearby` | 200 JSON | Location bearer token when enabled |
+| POST | `/privacy/location/delete` | 204, empty body | Optional route; dedicated privacy bearer token; normalized identifier |
+| POST | `/privacy/location/delete-exact` | 204, empty body | Optional route; dedicated privacy bearer token; exact stored identifier; 404 on builds without this route |
+| GET | `/health/live` | 200 JSON | No application authentication |
+| GET | `/health/ready` | 200 JSON or 503 | No application authentication |
+| GET | `/metrics` | 200 Prometheus text | Metrics bearer token when enabled |
+| GET | `/api-docs/` | Swagger UI | Optional; Basic authentication outside development |
+| GET | `/api-docs/openapi.json` | Runtime OpenAPI JSON | Same documentation authentication |
 
-Success messages, error messages, validation details and `updateStatus` use the selected language. JSON keys, field paths, identifiers, numeric values, booleans, HTTP status codes, health status codes and ISO timestamps remain unchanged. The response includes `Content-Language: en` or `fa`, and `Vary: Accept-Language`. Shared caches must retain this variation. Documentation and operational logs stay in English.
+Tokens identify a trusted service, not the end user. `userId` and `excludeUserId` do not establish ownership or permission to see another user's coordinates.
+
+## Publish a location
 
 ```bash
-curl -fsS http://localhost:8080/location/nearby \
+curl --fail-with-body http://localhost:8080/location/upsert \
+  -H "Authorization: Bearer $LOCATION_AUTH_TOKEN" \
   -H 'Content-Type: application/json' \
-  -H 'Accept-Language: fa' \
-  --data '{"coordinate":{"lat":35.6892,"lng":51.389}}'
+  -d '{"userId":"demo_user","coordinate":{"lat":35.6892,"lng":51.389}}'
 ```
-
-Illustrative localized display text for the same stored timestamp and server reference instant:
-
-```json
-{"en":"1 minute ago","fa":"۱ دقیقه پیش"}
-```
-
-The object above compares display strings; the actual nearby response retains its normal `data[].updateStatus` field. A successful upsert with `Accept-Language: fa` returns:
-
-```json
-{"success":true,"message":"موقعیت با موفقیت ذخیره شد"}
-```
-
-## Coordinates and identifiers
-
-| Field | Type | Constraint |
-| --- | --- | --- |
-| `coordinate.lat` | number | WGS84 latitude from -90 to 90, inclusive |
-| `coordinate.lng` | number | WGS84 longitude from -180 to 180, inclusive |
-| `userId` / `excludeUserId` | string | Trimmed; 1-255 UTF-16 code units after trimming; well-formed Unicode with no NUL characters |
-
-Coordinates must be JSON numbers; numeric strings are not accepted for `lat` or `lng`. The longitude field is named `lng`. The database determines the update timestamp; client-supplied timestamps are not part of the contract.
-
-## Create or update
-
-`POST /location/upsert`
-
-Request:
-
-```json
-{
-  "userId": "demo-user",
-  "coordinate": {"lat": 35.6892, "lng": 51.389}
-}
-```
-
-Both `userId` and `coordinate` are required. The first write inserts a row. Subsequent writes for that identifier update coordinates and `updated_at`, preserving `created_at`.
-
-Response, status 200:
 
 ```json
 {"success":true,"message":"Location upserted successfully"}
 ```
 
-The endpoint does not return the stored row.
+| Field | Rules |
+|---|---|
+| `userId` | String; trimmed, 1–255 UTF-16 code units (`String.length` in JavaScript); well-formed Unicode (lone UTF-16 surrogates are rejected because UTF-8 storage would turn distinct IDs into the same U+FFFD value); control characters U+0000–U+001F and U+007F–U+009F are rejected |
+| `coordinate.lat` | JSON number from −90 through 90 |
+| `coordinate.lng` | JSON number from −180 through 180 |
+
+An astral Unicode character such as an emoji occupies two UTF-16 code units; the limit is not a count of displayed characters or UTF-8 bytes. Coordinate numeric strings are rejected. Upsert creates one current location or replaces the existing position. PostgreSQL supplies `updated_at`; the client cannot supply an observation timestamp. The original `created_at` is preserved. Repeating an upsert refreshes freshness even when coordinates do not change.
 
 ## Nearby search
 
-`POST /location/nearby`
-
-```json
-{
-  "coordinate": {"lat": 35.6892, "lng": 51.389},
-  "maxDistance": 5000,
-  "excludeUserId": "requester",
-  "page": 1,
-  "pageSize": 10
-}
-```
-
-| Field | Required | Default | Constraint |
-| --- | --- | --- | --- |
-| `coordinate` | Yes | None | Search-center coordinate object |
-| `maxDistance` | No | `DEFAULT_MAX_DISTANCE_METERS`, normally 10000 | Greater than zero; at most `MAX_MAX_DISTANCE_METERS`; meters |
-| `excludeUserId` | No | No exclusion | Omits one identifier |
-| `page` | No | 1 | Positive integer up to `9007199254740991`; computed offset must also be safe |
-| `pageSize` | No | 10 | Integer 1-100 |
-
-Options may be provided in the query or body. A body field overrides the entire query field of the same name. Precedence is shallow; coordinate components are not merged individually. Send coordinates in the JSON body for the standard request form.
-
 ```bash
-curl -sS -X POST \
-  'http://localhost:8080/location/nearby?maxDistance=5000&page=2&pageSize=5' \
+curl --fail-with-body http://localhost:8080/location/nearby \
+  -H "Authorization: Bearer $LOCATION_AUTH_TOKEN" \
   -H 'Content-Type: application/json' \
-  --data '{"coordinate":{"lat":35.6892,"lng":51.389},"maxDistance":1000}'
+  -d '{"coordinate":{"lat":35.6892,"lng":51.389},"maxDistance":5000,"excludeUserId":"requesting_user","pagination":"cursor","pageSize":10}'
 ```
 
-The effective radius is 1000 meters, page is 2, and pageSize is 5. Numeric strings are accepted for `maxDistance`, `page`, and `pageSize`. Booleans, arrays, objects, null, and blank or whitespace-only strings are rejected.
+| Field | Default | Rules |
+|---|---|---|
+| `coordinate` | Required | Same numeric coordinate rules as upsert; use a body object |
+| `maxDistance` | 10,000 | Positive finite number; default maximum 100,000; both values configurable |
+| `excludeUserId` | Omitted | Same ID rules as upsert; excludes exactly one user |
+| `pagination` | `offset` | `offset` or `cursor`; supplying `cursor` also selects cursor mode |
+| `page` | 1 in offset mode | Positive safe integer; resulting offset must be safe; forbidden in cursor mode |
+| `pageSize` | 10 | Integer from 1 through 100 |
+| `cursor` | Omitted | Trimmed opaque string from 1 through 2,400 characters. Every cursor the service emits fits: the worst case, a signed decay cursor for a 255-character stored identifier of escaped control characters, is 2,389 characters |
 
-### Selection and ordering
+Pagination, radius, and exclusion fields may appear in the query or body. A body field wins when both supply the same name. Numeric strings are accepted for pagination/radius, including in the body, while booleans, arrays, objects, and blank numeric strings are rejected. `coordinate` components must remain JSON numbers.
 
-A candidate must be inside the inclusive radius, fresh under the configured TTL, and different from `excludeUserId`. Freshness follows:
+`cursor` cannot be combined with `page` or `pagination=offset`. No explicit cursor is needed to request the first cursor page.
 
-```sql
-updated_at >= now() - make_interval(days => LOCATION_TTL_DAYS)
-```
+The radius uses the inclusive `ST_DWithin` geography predicate. TTL filtering runs independently of physical cleanup: legacy uses the current database clock, while decay uses its pinned reference clock. A decay continuation can therefore include rows that have expired relative to the current clock but were eligible at its reference time. Results sort by internal ranking score descending, then user ID ascending, rather than by distance alone. Ranking mode is an environment setting, not a request field.
 
-This illustrative expression uses `LOCATION_TTL_DAYS` to represent the configured value. Executable SQL uses a bind parameter.
+## Response shapes
 
-Results are ordered by the following score descending, then by `user_id` ascending:
-
-```text
-score = 1 / (distance + 1) + (epoch_seconds(updated_at) * 1000) / 1e10
-```
-
-Ordering is therefore not distance-only. `distance` is measured from the requested center to the stored location, in meters. The requester may appear unless `excludeUserId` is sent.
-
-### Response
-
-Illustrative status-200 response. Relative time depends on the application clock:
+An illustrative offset response:
 
 ```json
 {
   "success": true,
+  "paginationMode": "offset",
+  "rankingMode": "legacy",
   "page": 1,
   "pageSize": 10,
   "totalCount": 1,
   "totalPages": 1,
   "hasMore": false,
+  "nextCursor": null,
   "data": [
     {
-      "userId": "demo-user",
-      "coordinate": {"lat": 35.6892, "lng": 51.389},
+      "userId": "demo_user",
+      "coordinate": { "lat": 35.6892, "lng": 51.389 },
       "distance": 0,
-      "updatedAt": "2026-10-14T00:00:00.000Z",
-      "updateStatus": "5 minutes ago"
+      "updatedAt": "2026-10-12T08:00:00.000Z",
+      "updateStatus": "1 minute ago"
     }
   ]
 }
 ```
 
-| Response field | Meaning |
-| --- | --- |
-| `page`, `pageSize` | Effective values after validation and defaults |
-| `totalCount` | All candidates matching radius, TTL, and exclusion |
-| `totalPages` | `ceil(totalCount / pageSize)` |
-| `hasMore` | `page < totalPages` |
-| `data[].coordinate` | That user's stored coordinates |
-| `data[].distance` | Calculated distance in meters |
-| `data[].updatedAt` | Stored timestamp serialized to ISO format |
-| `data[].updateStatus` | English or Persian display text selected by `Accept-Language` |
-
-When no candidates match, `totalCount` and `totalPages` are zero, `hasMore` is false, and `data` is empty. A page beyond the last page also returns 200 with `data: []`; a fallback query calculates the matching count.
-
-The offset is `(page - 1) * pageSize`. Separate pages do not share a snapshot. Concurrent writes can change ordering or counts in later requests.
-
-### Relative display age
-
-`updatedAt` is the exact database timestamp for calculations. On every request, the server captures its current time before body parsing or database work, then recalculates `updateStatus` from the difference between that reference and each stored `updatedAt`. One reference instant is shared by the entire response; database latency and per-row processing do not change it. The age is never stored and no client clock is trusted. A later request recomputes it from the original stored timestamp. An already received JSON response does not update itself; a client that needs a continuously changing label must refresh it or format `updatedAt` locally.
-
-The display uses cached native `Intl.RelativeTimeFormat` formatters for English and Persian. Language affects wording and display digits, with identical unit thresholds in both languages. Calendar months and years follow the UTC Gregorian calendar in both languages, including Persian; localization does not change the calendar.
-
-| Age unit | Selection and calculation |
-| --- | --- |
-| Seconds | Below 60 seconds; completed seconds |
-| Minutes | Below 60 minutes; completed minutes |
-| Hours | Below 24 hours; completed hours |
-| Days | Below 7 elapsed days; each day is 24 hours |
-| Weeks | At least 7 elapsed days, before the first complete UTC calendar month |
-| Months | Completed UTC calendar months, before 12 completed months |
-| Years | Completed UTC calendar years, from 12 completed months onward |
-
-Month/year anniversaries preserve the stored UTC time of day and clamp an unavailable day to the destination month's last day. For example, January 31 to February 28 at the same UTC time is one month in a non-leap year. A February 29 anniversary falls on February 28 in a non-leap year. These units do not assume that every month has 30 days or every year has 365 days.
-
-Examples include `1 minute ago`, `2 hours ago`, `1 month ago` and `1 year ago`. Future timestamps retain `0 seconds ago`. Invalid stored timestamps produce the generic internal error rather than a misleading `NaN` display. Server timezones and daylight-saving transitions do not change the UTC calendar policy. The display text is not a precise duration or a value for client arithmetic.
-
-## Health
-
-```json
-{"success":true,"status":"ok"}
-```
-
-The response above belongs to `GET /health/live`. Readiness executes `SELECT 1` through the pool:
-
-```json
-{"success":true,"status":"ready"}
-```
-
-On a database error, readiness returns 503:
-
-```json
-{"success":false,"status":"not_ready"}
-```
-
-Readiness does not check table existence or spatial query correctness. Verify an upsert and nearby request after deployment.
-
-## Errors
-
-| Status | Condition | Message or structure |
-| --- | --- | --- |
-| 400 | Invalid upsert fields | `Invalid request body` with `errors` |
-| 400 | Invalid nearby fields | `Invalid request data` with `errors` |
-| 400 | Malformed JSON, malformed UTF-8 or corrupt compressed JSON | `Invalid JSON body` |
-| 401 | Invalid documentation credentials | `Unauthorized` with a Basic challenge header |
-| 404 | Unknown route or disabled Swagger | `Not found` |
-| 413 | JSON exceeds the parser limit | `Request body too large` |
-| 415 | Unsupported charset or content encoding | `Unsupported request body encoding` |
-| 500 | Location controller error | `Internal server error` |
-| 500 | General middleware error | `Internal Server Error` |
-| 503 | Readiness query failure | `status: "not_ready"` |
-
-Validation example for an empty `userId`; wording and structure follow the current schema:
+Time/age values are illustrative. A cursor response contains the same result objects but omits `page` and `totalPages`:
 
 ```json
 {
-  "success": false,
-  "message": "Invalid request body",
-  "errors": {
-    "_errors": [],
-    "userId": {"_errors": ["User id cannot be empty"]}
-  }
+  "success": true,
+  "paginationMode": "cursor",
+  "rankingMode": "legacy",
+  "pageSize": 10,
+  "totalCount": 0,
+  "hasMore": false,
+  "nextCursor": null,
+  "data": []
 }
 ```
 
-The table and validation example above show default English wording. With `Accept-Language: fa`, human-readable messages and `_errors` entries are translated while field names and structure remain unchanged. Parser errors do not echo the request body. `errors` is present only for schema validation failures. Validator-generated field details may change between dependency versions. Clients should use the HTTP status and response structure when handling failures.
+| Response field | Meaning |
+|---|---|
+| `paginationMode` | Effective pagination method |
+| `rankingMode` | Configured server ranking profile mode |
+| `totalCount` | Match count; verified signed v3 continuation reuses the original count |
+| `totalPages` | `ceil(totalCount / pageSize)`; offset responses only |
+| `hasMore` | More rows/pages were detected for this response |
+| `nextCursor` | Opaque continuation token or `null`; offset responses can also offer a cursor |
+| `data[].userId` | Matched user identifier |
+| `data[].coordinate` | Matched user's stored position, not an echo of the search center |
+| `data[].distance` | Unrounded PostGIS geography distance from the search center in meters |
+| `data[].updatedAt` | Database update timestamp |
+| `data[].updateStatus` | English or Persian display age calculated at request start |
 
-## OpenAPI and Swagger
+Internal `score`, primary key, and `created_at` are omitted. An offset beyond the final page returns empty `data` while preserving the match count. A terminal page has `hasMore=false` and `nextCursor=null`.
 
-[openapi.json](openapi.json) is generated from the code definitions and can be imported into API tools. Its canonical radius default/maximum values are 10000/100000, and `servers[0].url` is `/`. For configuration-specific values, retrieve `/api-docs/openapi.json` from the running environment when documentation is enabled.
+## Cursor traversal
 
-The OpenAPI 3.0.3 contract includes unique operation IDs, reusable request/response schemas, seven named request examples, and success/error examples for every documented response. Readiness success and 503 failure have distinct schemas. Radius defaults and limits are shared by body and query definitions. Safe-offset calculation, trimming/Unicode length and shallow precedence remain runtime rules. Numeric schemas describe canonical input; numeric-string acceptance is documented in their descriptions. Apply the rules on this page when validating clients.
+1. Request `pagination=cursor` without a cursor.
+2. If `nextCursor` is non-null, send it with the same coordinate, radius, and exclusion. Omit `page`. Page size may change.
+3. Continue until `nextCursor=null`; restart from the first page after a cursor validation or expiration failure.
 
-The UI enables Execute by default when documentation is exposed. The [interactive Swagger guide](SWAGGER.md) covers the console workflow, query/body precedence, deployment settings and troubleshooting.
+A JavaScript traversal for a protected service:
+
+```javascript
+const search = {
+  coordinate: { lat: 35.6892, lng: 51.389 },
+  maxDistance: 5000,
+  pagination: "cursor",
+  pageSize: 20,
+};
+let cursor;
+do {
+  const response = await fetch("http://localhost:8080/location/nearby", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.LOCATION_AUTH_TOKEN}`,
+    },
+    body: JSON.stringify({ ...search, ...(cursor ? { cursor } : {}) }),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) throw new Error(`Nearby HTTP ${response.status}`);
+  const page = await response.json();
+  // Apply the caller's disclosure policy before displaying page.data.
+  cursor = page.nextCursor;
+} while (cursor);
+```
+
+New v3 sessions expire after `CURSOR_MAX_AGE_MINUTES` (default 60); advancing pages does not renew their issuance time. Invalid/tampered tokens, query mismatches, changed decay profiles, expired sessions, and timestamps beyond the five-minute future allowance return 400.
+
+Configure the same signing keys across replicas. Signing prevents forgery but does not encrypt identifiers inside a cursor. Treat tokens as sensitive and avoid logging them.
+
+**Consistency:** signed v3 counts reflect session start. Decay uses a fixed ranking clock, but the live table can change through upserts/deletion/cleanup. A cursor session is not a cross-request snapshot. Avoid promising exact-once enumeration of a changing population.
+
+## Erase a current location
+
+Both routes are mounted only when `PRIVACY_API_ENABLED=true`. Each requires the dedicated privacy token.
+
+```bash
+curl --fail-with-body -i http://localhost:8080/privacy/location/delete \
+  -H "Authorization: Bearer $PRIVACY_AUTH_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"userId":"demo_user"}'
+```
+
+Two routes erase a live location. Each request deletes at most one stored identity, and neither route falls back to the other.
+
+| Route | Identifier handling | Use for |
+|---|---|---|
+| `POST /privacy/location/delete` | Upsert rules: trimmed; 1–255 UTF-16 code units; well-formed Unicode; control characters rejected with 400, never trimmed away. A `match` field is rejected with 400 | The identifier the caller published; deletes the row an upsert of the same input writes |
+| `POST /privacy/location/delete-exact` | Byte-for-byte, no trimming; nonblank, 1–255 UTF-16 code units, well-formed Unicode, no NUL; other control characters allowed. Unknown fields are rejected with 400 | A `userId` returned by a nearby response, or identifiers stored under older rules (for example control characters before 2.13.1) |
+
+```bash
+curl --fail-with-body -i http://localhost:8080/privacy/location/delete-exact \
+  -H "Authorization: Bearer $PRIVACY_AUTH_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"userId":" legacy_user"}'
+```
+
+With both `" padded"` and `"padded"` stored, `delete-exact` with `{"userId":" padded"}` deletes only `" padded"`, while the normalized route with the same body deletes `"padded"`, exactly as upsert would have addressed it. With both `"\tuser"` and `"user"` stored, the normalized route rejects `{"userId":"\tuser"}` and deletes nothing.
+
+Exact erasure is a separate route because the pre-fix 2.13.5 build at `014d80e` silently drops unknown fields: a `match` selector sent there still performs normalized deletion. Builds without `delete-exact` answer **404 and delete nothing**. Version 2.14.0 includes the exact-erasure route; identify deployed binaries by commit/image digest as well as package version. Normalized erasure preserves trimming for valid IDs, but now also rejects ill-formed Unicode and `match`. Treat any 404 from `delete-exact` as "not performed" and retry with backoff until a replica that supports it answers; never retry the request on the normalized route. See [rolling out exact erasure](OPERATIONS.md#rolling-out-exact-erasure).
+
+Success is **204 with no response body**, whether the row existed or not. It is a hard deletion of live state. Stop publishing and drain delayed/retried events before invoking it; future upserts can recreate the row. See [the complete erasure workflow](PRIVACY_AND_RETENTION.md#explicit-erasure).
+
+## Probes and metrics
+
+```bash
+curl --fail http://localhost:8080/health/live
+curl --fail http://localhost:8080/health/ready
+curl --fail http://localhost:8080/metrics \
+  -H "Authorization: Bearer $METRICS_AUTH_TOKEN"
+```
+
+Liveness returns `{"success":true,"status":"ok"}`. Readiness returns `{"success":true,"status":"ready","circuit":"closed"}` when ready and PostgreSQL responds; the actual circuit field may be `closed`, `half_open`, or `open`. Not-ready responses return 503 and `status: "not_ready"`. The lifecycle reason is included when lifecycle prevents readiness, but not necessarily on a database failure.
+
+Metrics are Prometheus exposition text, not JSON. See [operations](OPERATIONS.md#metrics-and-alerts).
+
+## Errors and retries
+
+Error bodies have `success:false` and `message`. Schema failures also include Zod-formatted `errors`; cursor failures use a message without that field.
+
+```json
+{"success":false,"message":"Invalid cursor"}
+```
+
+| Status | Cause | Caller action |
+|---|---|---|
+| 400 | Invalid data/JSON, unsafe pagination, invalid or expired cursor | Correct request or restart traversal |
+| 401 | Missing/invalid credentials on a protected surface | Supply the correct surface token |
+| 404 | Unknown route or disabled optional endpoint | Check feature configuration and path |
+| 413 | JSON body too large | Reduce payload |
+| 415 | Unsupported body encoding/charset | Use supported JSON encoding |
+| 429 | Optional per-replica IP/workload rate limit | Honor `Retry-After`; apply bounded backoff |
+| 503 | Drain, admission pressure, transient DB error, or not-ready probe | Honor `Retry-After` if present; retry within a caller budget |
+| 500 | Unexpected internal failure | Correlate request ID and investigate |
+
+Controlled location rejections expose `X-Nearby-Rejection-Reason`: `draining`, `rate_limit`, `concurrency`, `pool_queue`, `circuit_open`, or `db_retryable`. They also expose `Retry-After`; drain responses use `Connection: close`. Privacy transient failures provide retry guidance without the location rejection-reason header. Not every 503 has those headers.
+
+Retries should use jitter, a deadline, and a finite attempt count. Repeating an upsert can safely target the same user row, but it refreshes `updated_at`. Privacy erasure is idempotent on both routes; a 404 from `delete-exact` means the erasure was not performed.
+
+## Response language and relative-time display
+
+Use `Accept-Language: en` (default) or `Accept-Language: fa`. Regional tags and quality weights are supported, with English fallback for unsupported preferences. `Content-Language` reports the selection and `Vary` includes `Accept-Language`. Human messages, validation details and display ages are localized. Keys, identifiers, cursor payloads, numeric values, health/error codes and ISO timestamps are unchanged. Documentation, logs and Prometheus exposition stay in English.
+
+```json
+{"en":"1 minute ago","fa":"۱ دقیقه پیش"}
+```
+
+The example compares display strings; nearby responses retain their normal `data[].updateStatus` field. Age is calculated from stored `updatedAt` using one trusted server instant captured at request start, before parsing or database work. It is not stored or based on client time. Later requests recalculate it; a received JSON response does not update itself.
+
+| Age | Unit |
+|---|---|
+| Below 60 seconds | Completed seconds, including zero |
+| Below 60 minutes | Completed minutes |
+| Below 24 hours | Completed hours |
+| Below 7 elapsed days | Completed 24-hour days |
+| From 7 days until the first complete UTC calendar month | Completed weeks |
+| From 1 through 11 complete calendar months | Months |
+| From 12 complete calendar months | Completed years |
+
+Both languages use UTC Gregorian calendar anniversaries, preserving time of day and clamping missing days to month end. January 31 to February 28 at the same time is one month in a non-leap year. This avoids fixed 30-day/365-day approximations. Future timestamps show zero age; invalid stored timestamps fail as a generic internal error. Use exact `updatedAt` for arithmetic.
+
+## Swagger and OpenAPI
+
+`SWAGGER_ENABLED` controls route mounting; `SWAGGER_TRY_IT_OUT_ENABLED` controls UI execution. Both default to true in development and false otherwise. Outside development, enabled docs require `SWAGGER_AUTH_USERNAME` and a separate password of at least 32 characters. Basic documentation credentials are independent of API bearer tokens.
+
+Use the browser's documentation login, then choose Swagger **Authorize** and enter the relevant bearer token without the `Bearer` prefix. Execution is available only when enabled. Keep production UI view-only unless an operator has a concrete need to execute requests.
+
+The committed [OpenAPI file](openapi.json) describes all features and configured generation defaults. The live `/api-docs/openapi.json` reflects enabled privacy routes, current authentication, and runtime radius settings. `BASE_URL` changes the OpenAPI server URL; it does not move Express routes or configure proxy rewriting.
+
+Regenerate deterministically with `npm run docs:api`. CI checks for drift. See [development maintenance](DEVELOPMENT.md#maintain-the-documentation).
+
+Source: [routes](../src/routes), [schemas](../src/schemas/request.schema.ts), [controllers](../src/controllers), [OpenAPI builder](../src/config/swagger.ts).

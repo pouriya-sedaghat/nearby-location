@@ -1,63 +1,17 @@
 {
-  "openapi": "3.0.3",
+  "openapi": "3.0.0",
   "info": {
     "title": "Nearby Location API",
-    "version": "1.0.0",
-    "description": "Store the latest user location and search nearby users with PostgreSQL and PostGIS.\n\n## Execute requests\n\nExpand an operation, select a request example or edit the JSON, then click Execute. Requests are sent to the selected server. Location upserts modify that database. Start with liveness/readiness, write a test location, then search the same center.\n\n## Authentication\n\nDocumentation login is dedicated HTTP Basic Auth when configured; it protects /api-docs and its assets/specification. The standalone location API does not enforce that login or a bearer token. Existing upstream access controls still apply to API requests.\n\n## Coordinates, radius and ordering\n\nCoordinates are WGS84 decimal degrees: lat is latitude, lng is longitude. Radius and distance use meters. Fresh candidates inside the inclusive radius are ordered by the existing distance/recency score, then userId; ordering is not distance-only.\n\n## Input precedence and pagination\n\nBody fields override entire query fields of the same name. Use the Search center only example to control radius and pagination through query inputs. Numeric strings are accepted for numeric options; booleans, arrays, objects, null and blank strings are rejected. The JSON parser limit is 32 KiB.\n\n## Responses\n\nExamples are illustrative. Schema validation errors include a formatted errors tree; malformed/compressed JSON may return 400, oversized JSON 413 and unsupported encodings 415. Unknown routes or methods return 404 outside these operations. Readiness checks database connectivity, not schema or spatial-query correctness.\n\n## Response language and display age\n\nSet Accept-Language to en or fa (regional tags and quality weights are accepted). English is the default and fallback. Human-readable messages, validation errors and updateStatus follow the selected language; JSON keys, health status codes, numbers and ISO timestamps remain unchanged. Content-Language reports the selection and Vary includes Accept-Language. Documentation stays in English.\n\nupdateStatus is recalculated from the stored updatedAt at the start of every server request, with one reference instant for all results. It is not stored or based on a client clock. Language changes formatting only; both languages use the same elapsed-time and UTC Gregorian calendar policy.",
-    "license": {
-      "name": "ISC"
-    }
+    "version": "2.14.0",
+    "description": "Microservice to store user location and find nearby users with PostgreSQL + PostGIS Human-readable API messages and display ages support English (default) and Persian through Accept-Language. Keys, identifiers, numbers, status codes and ISO timestamps remain unchanged. Documentation and Prometheus exposition remain English."
   },
   "servers": [
     {
       "url": "/",
-      "description": "Current origin or configured API base URL"
+      "description": "Current API origin or configured base URL"
     }
   ],
-  "tags": [
-    {
-      "name": "Health",
-      "description": "Process liveness and database connectivity. Run these checks before testing location requests."
-    },
-    {
-      "name": "Location",
-      "description": "Write a current user location and search fresh nearby users. Upsert is a real database write."
-    }
-  ],
-  "security": [],
   "components": {
-    "parameters": {
-      "ResponseLanguage": {
-        "name": "Accept-Language",
-        "in": "header",
-        "required": false,
-        "description": "Response language: en (default) or fa. Regional tags such as fa-IR and quality weights are supported. Unsupported or missing preferences fall back to English. Only human-readable text is localized.",
-        "schema": {
-          "type": "string",
-          "default": "en"
-        },
-        "example": "fa"
-      }
-    },
-    "headers": {
-      "ContentLanguage": {
-        "description": "Selected response language.",
-        "schema": {
-          "type": "string",
-          "enum": [
-            "en",
-            "fa"
-          ]
-        }
-      },
-      "VaryLanguage": {
-        "description": "Includes Accept-Language so caches distinguish language variants.",
-        "schema": {
-          "type": "string"
-        },
-        "example": "Accept-Language"
-      }
-    },
     "schemas": {
       "Coordinate": {
         "type": "object",
@@ -65,91 +19,21 @@
           "lat",
           "lng"
         ],
-        "description": "WGS84 decimal degrees. Runtime accepts JSON numbers, not numeric strings. Storage uses longitude/latitude order internally.",
         "properties": {
           "lat": {
             "type": "number",
             "minimum": -90,
             "maximum": 90,
-            "example": 35.6892,
-            "description": "Latitude in decimal degrees, inclusive bounds."
+            "example": 35.6892
           },
           "lng": {
             "type": "number",
             "minimum": -180,
             "maximum": 180,
-            "example": 51.389,
-            "description": "Longitude in decimal degrees, inclusive bounds."
+            "example": 51.389
           }
         },
-        "example": {
-          "lat": 35.6892,
-          "lng": 51.389
-        }
-      },
-      "UpsertRequest": {
-        "type": "object",
-        "required": [
-          "userId",
-          "coordinate"
-        ],
-        "description": "Create or replace the current location for one identifier. The database assigns update time; created time is preserved on updates. Extra request fields are ignored by runtime validation.",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 255,
-            "pattern": "^[^\\u0000]*$",
-            "description": "Trimmed identifier containing well-formed Unicode and no NUL. Length is measured after trimming, in UTF-16 code units. Identifier ownership is enforced by the deployment, not this service."
-          },
-          "coordinate": {
-            "$ref": "#/components/schemas/Coordinate"
-          }
-        }
-      },
-      "NearbyRequest": {
-        "type": "object",
-        "required": [
-          "coordinate"
-        ],
-        "description": "Search center plus optional filters. Body fields override query fields. Only coordinate is required; omit other fields to use the query controls or server defaults. A safe computed offset is required.",
-        "properties": {
-          "coordinate": {
-            "$ref": "#/components/schemas/Coordinate"
-          },
-          "maxDistance": {
-            "type": "number",
-            "minimum": 0,
-            "exclusiveMinimum": true,
-            "maximum": 100000,
-            "default": 10000,
-            "example": 10000,
-            "description": "Inclusive search radius in meters. Positive numeric strings are also accepted at runtime. Defaults and limits reflect this process configuration."
-          },
-          "page": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 9007199254740991,
-            "default": 1,
-            "example": 1,
-            "description": "One-based page. Both page and (page - 1) * pageSize must be safe integers. Separate pages do not share a database snapshot."
-          },
-          "pageSize": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 100,
-            "default": 10,
-            "example": 10,
-            "description": "Number of results per page, from 1 through 100."
-          },
-          "excludeUserId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 255,
-            "pattern": "^[^\\u0000]*$",
-            "description": "Optional identifier to omit. The requester is not excluded automatically. Trimmed identifier containing well-formed Unicode and no NUL. Length is measured after trimming, in UTF-16 code units. Identifier ownership is enforced by the deployment, not this service."
-          }
-        }
+        "description": "WGS84 decimal degrees. lat is latitude (Y); lng is longitude (X)."
       },
       "NearbyUser": {
         "type": "object",
@@ -162,9 +46,7 @@
         ],
         "properties": {
           "userId": {
-            "type": "string",
-            "description": "Matched user's stored identifier.",
-            "example": "demo-user"
+            "type": "string"
           },
           "coordinate": {
             "$ref": "#/components/schemas/Coordinate"
@@ -172,32 +54,105 @@
           "distance": {
             "type": "number",
             "minimum": 0,
-            "example": 0,
-            "description": "Spheroidal distance in meters from the requested center."
+            "description": "Distance from the request coordinate in meters."
           },
           "updatedAt": {
             "type": "string",
-            "format": "date-time",
-            "example": "2026-10-25T12:00:00.000Z",
-            "description": "Database update timestamp. Use this field for calculations."
+            "format": "date-time"
           },
           "updateStatus": {
             "type": "string",
-            "example": "0 seconds ago",
-            "description": "English or Persian display age, recalculated at each server request's start from updatedAt. One server reference instant is shared by all results. Seconds through weeks use elapsed time (24-hour days); months and years use completed UTC Gregorian calendar anniversaries with month-end clamping in both languages. Future timestamps show zero age; updatedAt remains exact. This display string is not stored."
+            "example": "5 minutes ago",
+            "description": "English or Persian display age recalculated from updatedAt using one server instant captured at request start. Short units are elapsed units; months/years use completed UTC Gregorian calendar anniversaries with month-end clamping in both languages. Future timestamps show zero age. Age is not stored; updatedAt remains exact."
           }
         },
-        "description": "coordinate is the matched user's stored location, not a copy of the request center."
+        "description": "The coordinate belongs to the result user and is read from their stored current location. Internal ranking scores are omitted."
       },
-      "NearbyResponse": {
+      "UpsertRequest": {
+        "type": "object",
+        "required": [
+          "userId",
+          "coordinate"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$",
+            "example": "user_123",
+            "description": "Trimmed, well-formed Unicode identifier (no lone UTF-16 surrogates). Control characters are rejected. Runtime length is 1-255 UTF-16 code units after trimming; astral characters use two units."
+          },
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          }
+        }
+      },
+      "NearbyRequest": {
+        "type": "object",
+        "required": [
+          "coordinate"
+        ],
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/Coordinate"
+          },
+          "maxDistance": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 100000,
+            "default": 10000
+          },
+          "excludeUserId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$",
+            "description": "Trimmed, well-formed Unicode identifier (no lone UTF-16 surrogates). Control characters are rejected. Runtime length is 1-255 UTF-16 code units after trimming; astral characters use two units."
+          },
+          "pagination": {
+            "type": "string",
+            "enum": [
+              "offset",
+              "cursor"
+            ],
+            "default": "offset"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "default": 1,
+            "description": "Offset mode only. (page - 1) * pageSize must be a safe integer."
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 10
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2400,
+            "description": "Opaque nextCursor from a previous response; cannot be combined with page or pagination=offset."
+          }
+        },
+        "description": "Body fields override query fields with the same name. Keep coordinate, maxDistance and excludeUserId identical across cursor pages."
+      },
+      "NearbyOffsetResponse": {
         "type": "object",
         "required": [
           "success",
+          "paginationMode",
+          "rankingMode",
           "page",
           "pageSize",
           "totalCount",
           "totalPages",
           "hasMore",
+          "nextCursor",
           "data"
         ],
         "properties": {
@@ -207,48 +162,62 @@
               true
             ]
           },
+          "paginationMode": {
+            "type": "string",
+            "enum": [
+              "offset"
+            ]
+          },
+          "rankingMode": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "decay"
+            ]
+          },
           "page": {
             "type": "integer",
-            "minimum": 1,
-            "example": 1
+            "minimum": 1
           },
           "pageSize": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 100,
-            "example": 10
+            "maximum": 100
           },
           "totalCount": {
             "type": "integer",
-            "minimum": 0,
-            "example": 1,
-            "description": "All candidates matching radius, freshness and exclusion."
+            "minimum": 0
           },
           "totalPages": {
             "type": "integer",
-            "minimum": 0,
-            "example": 1,
-            "description": "ceil(totalCount / pageSize); zero when no candidates match."
+            "minimum": 0
           },
           "hasMore": {
-            "type": "boolean",
-            "example": false,
-            "description": "True when page is less than totalPages."
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
           },
           "data": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/NearbyUser"
-            },
-            "description": "Results for the requested page; may be empty beyond the last page."
+            }
           }
         }
       },
-      "UpsertResponse": {
+      "NearbyCursorResponse": {
         "type": "object",
         "required": [
           "success",
-          "message"
+          "paginationMode",
+          "rankingMode",
+          "pageSize",
+          "totalCount",
+          "hasMore",
+          "nextCursor",
+          "data"
         ],
         "properties": {
           "success": {
@@ -257,30 +226,42 @@
               true
             ]
           },
-          "message": {
+          "paginationMode": {
             "type": "string",
             "enum": [
-              "Location upserted successfully",
-              "موقعیت با موفقیت ذخیره شد"
+              "cursor"
             ]
-          }
-        }
-      },
-      "ValidationErrors": {
-        "type": "object",
-        "required": [
-          "_errors"
-        ],
-        "properties": {
-          "_errors": {
+          },
+          "rankingMode": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "decay"
+            ]
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "totalCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "data": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/NearbyUser"
             }
           }
-        },
-        "additionalProperties": true,
-        "description": "Formatted validation tree. Each invalid field contains its own localized _errors array; nested fields contain nested objects. Field names are unchanged in both languages."
+        }
       },
       "ErrorResponse": {
         "type": "object",
@@ -296,684 +277,791 @@
             ]
           },
           "message": {
-            "type": "string",
-            "description": "Human-readable failure description."
+            "type": "string"
           },
           "errors": {
-            "$ref": "#/components/schemas/ValidationErrors"
-          }
-        },
-        "description": "errors is present for schema validation failures and omitted for parser or internal errors."
-      },
-      "LivenessResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "status"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "enum": [
-              true
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "ok"
-            ]
-          }
-        }
-      },
-      "ReadinessResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "status"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "enum": [
-              true
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "ready"
-            ]
-          }
-        }
-      },
-      "NotReadyResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "status"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "enum": [
-              false
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "not_ready"
-            ]
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Zod formatted field errors, present for request validation failures."
           }
         }
       }
     },
-    "examples": {
-      "UpsertTehran": {
-        "summary": "Create a test location in Tehran",
-        "value": {
-          "userId": "demo-user",
-          "coordinate": {
-            "lat": 35.6892,
-            "lng": 51.389
-          }
-        }
+    "securitySchemes": {
+      "locationBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque service token",
+        "description": "LOCATION_AUTH_TOKEN for /location only. Enter the token without the Bearer prefix."
       },
-      "UpsertUpdate": {
-        "summary": "Update the same test user",
-        "value": {
-          "userId": "demo-user",
-          "coordinate": {
-            "lat": 35.7,
-            "lng": 51.4
-          }
-        }
+      "metricsBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque service token",
+        "description": "METRICS_AUTH_TOKEN for /metrics only. Enter the token without the Bearer prefix."
       },
-      "UpsertOrigin": {
-        "summary": "Valid zero coordinates",
-        "value": {
-          "userId": "origin-user",
-          "coordinate": {
-            "lat": 0,
-            "lng": 0
-          }
-        }
-      },
-      "SearchCenterOnly": {
-        "summary": "Search center only (use query controls)",
-        "value": {
-          "coordinate": {
-            "lat": 35.6892,
-            "lng": 51.389
-          }
-        }
-      },
-      "SearchWithOptions": {
-        "summary": "Explicit radius and pagination in the body",
-        "value": {
-          "coordinate": {
-            "lat": 35.6892,
-            "lng": 51.389
-          },
-          "maxDistance": 10000,
-          "page": 1,
-          "pageSize": 10
-        }
-      },
-      "SearchExcludingRequester": {
-        "summary": "Exclude the test user",
-        "value": {
-          "coordinate": {
-            "lat": 35.6892,
-            "lng": 51.389
-          },
-          "maxDistance": 5000,
-          "excludeUserId": "demo-user",
-          "page": 1,
-          "pageSize": 10
-        }
-      },
-      "SearchNextPage": {
-        "summary": "Second page",
-        "value": {
-          "coordinate": {
-            "lat": 35.6892,
-            "lng": 51.389
-          },
-          "page": 2,
-          "pageSize": 5
-        }
-      },
-      "Upserted": {
-        "summary": "Location stored",
-        "value": {
-          "success": true,
-          "message": "Location upserted successfully"
-        }
-      },
-      "UpsertedPersian": {
-        "summary": "Location stored (Accept-Language: fa)",
-        "value": {
-          "success": true,
-          "message": "موقعیت با موفقیت ذخیره شد"
-        }
-      },
-      "NearbyMatches": {
-        "summary": "One matching location",
-        "value": {
-          "success": true,
-          "page": 1,
-          "pageSize": 10,
-          "totalCount": 1,
-          "totalPages": 1,
-          "hasMore": false,
-          "data": [
-            {
-              "userId": "demo-user",
-              "coordinate": {
-                "lat": 35.6892,
-                "lng": 51.389
-              },
-              "distance": 0,
-              "updatedAt": "2026-10-25T12:00:00.000Z",
-              "updateStatus": "0 seconds ago"
-            }
-          ]
-        }
-      },
-      "NearbyMatchesPersian": {
-        "summary": "One matching location (Accept-Language: fa)",
-        "value": {
-          "success": true,
-          "page": 1,
-          "pageSize": 10,
-          "totalCount": 1,
-          "totalPages": 1,
-          "hasMore": false,
-          "data": [
-            {
-              "userId": "demo-user",
-              "coordinate": {
-                "lat": 35.6892,
-                "lng": 51.389
-              },
-              "distance": 0,
-              "updatedAt": "2026-10-25T12:00:00.000Z",
-              "updateStatus": "۰ ثانیه پیش"
-            }
-          ]
-        }
-      },
-      "NearbyEmpty": {
-        "summary": "No candidates match",
-        "value": {
-          "success": true,
-          "page": 1,
-          "pageSize": 10,
-          "totalCount": 0,
-          "totalPages": 0,
-          "hasMore": false,
-          "data": []
-        }
-      },
-      "NearbyBeyondLastPage": {
-        "summary": "Page beyond the last page",
-        "value": {
-          "success": true,
-          "page": 3,
-          "pageSize": 10,
-          "totalCount": 1,
-          "totalPages": 1,
-          "hasMore": false,
-          "data": []
-        }
-      },
-      "InvalidUpsert": {
-        "summary": "Empty user identifier",
-        "value": {
-          "success": false,
-          "message": "Invalid request body",
-          "errors": {
-            "_errors": [],
-            "userId": {
-              "_errors": [
-                "User id cannot be empty"
-              ]
-            }
-          }
-        }
-      },
-      "InvalidUpsertPersian": {
-        "summary": "Empty user identifier (Accept-Language: fa)",
-        "value": {
-          "success": false,
-          "message": "بدنه درخواست نامعتبر است",
-          "errors": {
-            "_errors": [],
-            "userId": {
-              "_errors": [
-                "شناسه کاربر نمی‌تواند خالی باشد"
-              ]
-            }
-          }
-        }
-      },
-      "InvalidNearby": {
-        "summary": "Non-positive radius",
-        "value": {
-          "success": false,
-          "message": "Invalid request data",
-          "errors": {
-            "_errors": [],
-            "maxDistance": {
-              "_errors": [
-                "Max distance must be a positive number"
-              ]
-            }
-          }
-        }
-      },
-      "InvalidJson": {
-        "summary": "Malformed or corrupt compressed JSON",
-        "value": {
-          "success": false,
-          "message": "Invalid JSON body"
-        }
-      },
-      "InvalidJsonPersian": {
-        "summary": "Malformed JSON (Accept-Language: fa)",
-        "value": {
-          "success": false,
-          "message": "بدنه JSON نامعتبر است"
-        }
-      },
-      "BodyTooLarge": {
-        "summary": "JSON parser limit exceeded",
-        "value": {
-          "success": false,
-          "message": "Request body too large"
-        }
-      },
-      "UnsupportedEncoding": {
-        "summary": "Unsupported charset or content encoding",
-        "value": {
-          "success": false,
-          "message": "Unsupported request body encoding"
-        }
-      },
-      "InternalError": {
-        "summary": "Location operation failed",
-        "value": {
-          "success": false,
-          "message": "Internal server error"
-        }
-      },
-      "Live": {
-        "summary": "Process is running",
-        "value": {
-          "success": true,
-          "status": "ok"
-        }
-      },
-      "Ready": {
-        "summary": "Database query succeeded",
-        "value": {
-          "success": true,
-          "status": "ready"
-        }
-      },
-      "NotReady": {
-        "summary": "Database query failed",
-        "value": {
-          "success": false,
-          "status": "not_ready"
-        }
+      "privacyBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque service token",
+        "description": "PRIVACY_AUTH_TOKEN for privacy erasure only. Enter the token without the Bearer prefix."
       }
     },
-    "requestBodies": {
-      "UpsertLocation": {
-        "required": true,
-        "description": "JSON body, up to 32 KiB after decompression. Execute writes to the selected database.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/UpsertRequest"
-            },
-            "examples": {
-              "create": {
-                "$ref": "#/components/examples/UpsertTehran"
-              },
-              "update": {
-                "$ref": "#/components/examples/UpsertUpdate"
-              },
-              "zeroCoordinates": {
-                "$ref": "#/components/examples/UpsertOrigin"
-              }
-            }
-          }
-        }
-      },
-      "NearbySearch": {
-        "required": true,
-        "description": "Choose Search center only when editing query filters. Explicit body options take precedence over the query controls.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/NearbyRequest"
-            },
-            "examples": {
-              "centerOnly": {
-                "$ref": "#/components/examples/SearchCenterOnly"
-              },
-              "explicitOptions": {
-                "$ref": "#/components/examples/SearchWithOptions"
-              },
-              "excludeRequester": {
-                "$ref": "#/components/examples/SearchExcludingRequester"
-              },
-              "nextPage": {
-                "$ref": "#/components/examples/SearchNextPage"
-              }
-            }
-          }
-        }
-      }
-    },
-    "responses": {
-      "LocationUpserted": {
-        "description": "The current location was created or updated.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/UpsertResponse"
-            },
-            "examples": {
-              "stored": {
-                "$ref": "#/components/examples/Upserted"
-              },
-              "storedPersian": {
-                "$ref": "#/components/examples/UpsertedPersian"
-              }
-            }
-          }
+    "parameters": {
+      "ResponseLanguage": {
+        "in": "header",
+        "name": "Accept-Language",
+        "required": false,
+        "description": "en (default) or fa. Regional tags and quality weights are supported; unsupported preferences fall back to English. Machine fields are unchanged.",
+        "schema": {
+          "type": "string",
+          "default": "en"
         },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "NearbyResults": {
-        "description": "Matching fresh locations and pagination metadata. Out-of-range pages succeed with an empty data array and the matching count.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/NearbyResponse"
-            },
-            "examples": {
-              "matches": {
-                "$ref": "#/components/examples/NearbyMatches"
-              },
-              "matchesPersian": {
-                "$ref": "#/components/examples/NearbyMatchesPersian"
-              },
-              "empty": {
-                "$ref": "#/components/examples/NearbyEmpty"
-              },
-              "beyondLastPage": {
-                "$ref": "#/components/examples/NearbyBeyondLastPage"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "InvalidUpsert": {
-        "description": "Invalid request fields or malformed JSON.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "validation": {
-                "$ref": "#/components/examples/InvalidUpsert"
-              },
-              "validationPersian": {
-                "$ref": "#/components/examples/InvalidUpsertPersian"
-              },
-              "malformedJson": {
-                "$ref": "#/components/examples/InvalidJson"
-              },
-              "malformedJsonPersian": {
-                "$ref": "#/components/examples/InvalidJsonPersian"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "InvalidNearby": {
-        "description": "Invalid search fields, unsafe pagination offset, or malformed JSON.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "validation": {
-                "$ref": "#/components/examples/InvalidNearby"
-              },
-              "malformedJson": {
-                "$ref": "#/components/examples/InvalidJson"
-              },
-              "malformedJsonPersian": {
-                "$ref": "#/components/examples/InvalidJsonPersian"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "RequestTooLarge": {
-        "description": "JSON body exceeds the 32 KiB parser limit.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "tooLarge": {
-                "$ref": "#/components/examples/BodyTooLarge"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "UnsupportedEncoding": {
-        "description": "Unsupported JSON charset or content encoding.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "unsupported": {
-                "$ref": "#/components/examples/UnsupportedEncoding"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "InternalError": {
-        "description": "The operation failed internally; inspect server logs.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "failure": {
-                "$ref": "#/components/examples/InternalError"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "Live": {
-        "description": "The HTTP process is alive. No database query is executed.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/LivenessResponse"
-            },
-            "examples": {
-              "live": {
-                "$ref": "#/components/examples/Live"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "Ready": {
-        "description": "SELECT 1 succeeded through the database pool.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ReadinessResponse"
-            },
-            "examples": {
-              "ready": {
-                "$ref": "#/components/examples/Ready"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
-      },
-      "NotReady": {
-        "description": "The database connectivity query failed.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/NotReadyResponse"
-            },
-            "examples": {
-              "unavailable": {
-                "$ref": "#/components/examples/NotReady"
-              }
-            }
-          }
-        },
-        "headers": {
-          "Content-Language": {
-            "$ref": "#/components/headers/ContentLanguage"
-          },
-          "Vary": {
-            "$ref": "#/components/headers/VaryLanguage"
-          }
-        }
+        "example": "fa"
       }
     }
   },
   "paths": {
+    "/privacy/location/delete": {
+      "post": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Permanently delete a user's current live location",
+        "description": "Idempotent privacy erasure command with normalized upsert identifier rules. The privacy API is disabled by default and, when enabled, requires its own bearer token. To delete a stored identifier byte-for-byte, use /privacy/location/delete-exact instead; this route rejects a match field because the pre-fix 2.13.5 build at 014d80e silently ignores it. Other unknown fields are stripped. Ill-formed Unicode is rejected. Stop upstream publishing before invoking this command; a later upsert can create a new live location again.",
+        "security": [
+          {
+            "privacyBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$",
+                    "description": "Same rules as upsert: trimmed, well-formed Unicode, control characters rejected (never trimmed away). Length is 1-255 UTF-16 code units after trimming. Deletes the identity an upsert of the same input writes.",
+                    "example": "user_123"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Erasure command completed. The response does not reveal whether a row existed.",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body, including any match field",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid privacy bearer token",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "413": {
+            "description": "JSON request body exceeds 32 KB",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request encoding or charset",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "503": {
+            "description": "Database temporarily unavailable",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          }
+        },
+        "operationId": "deleteUserLocation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ResponseLanguage"
+          }
+        ]
+      }
+    },
+    "/privacy/location/delete-exact": {
+      "post": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Permanently delete the live location of an exact stored identifier",
+        "description": "Idempotent privacy erasure of the stored identifier byte-for-byte, with no trimming or other normalization: use it for a userId returned by a nearby response or stored under older rules (for example control characters before 2.13.1). Deletes at most one row and never falls back to the normalized route. Builds without this route, including the pre-fix 2.13.5 build at 014d80e, answer 404 without deleting anything; treat 404 as \"not performed\" and retry, never as success. Version 2.14.0 includes this route; identify deployed binaries by version and commit/image digest. Requires the privacy bearer token.",
+        "security": [
+          {
+            "privacyBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "pattern": "^[^\\u0000]*$",
+                    "description": "Stored identifier byte-for-byte. Must be nonblank, well-formed Unicode and free of NUL; other control characters and surrounding whitespace are kept. Length is 1-255 UTF-16 code units without trimming.",
+                    "example": " legacy_user"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Erasure command completed. The response does not reveal whether a row existed.",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body, including unknown fields",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid privacy bearer token",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "404": {
+            "description": "Route not available (privacy API disabled, or a release without exact erasure). Nothing was deleted.",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "413": {
+            "description": "JSON request body exceeds 32 KB",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request encoding or charset",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "503": {
+            "description": "Database temporarily unavailable",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          }
+        },
+        "operationId": "deleteExactUserLocation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ResponseLanguage"
+          }
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "Monitoring"
+        ],
+        "summary": "Prometheus metrics",
+        "description": "Aggregate metrics without user IDs or coordinates. Requires the metrics surface token when METRICS_AUTH_MODE=bearer.",
+        "security": [
+          {
+            "metricsBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid metrics token",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "503": {
+            "description": "Metrics authentication is misconfigured",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          }
+        },
+        "operationId": "getMetrics"
+      }
+    },
     "/location/upsert": {
       "post": {
         "tags": [
           "Location"
         ],
+        "summary": "Upsert user location",
+        "description": "Create or update the latest location for a user. When LOCATION_AUTH_MODE=bearer, send Authorization: Bearer <token>.",
+        "security": [
+          {
+            "locationBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertRequest"
+              },
+              "examples": {
+                "create": {
+                  "summary": "Create a test location",
+                  "value": {
+                    "userId": "demo-user",
+                    "coordinate": {
+                      "lat": 35.6892,
+                      "lng": 51.389
+                    }
+                  }
+                },
+                "update": {
+                  "summary": "Update the test user",
+                  "value": {
+                    "userId": "demo-user",
+                    "coordinate": {
+                      "lat": 35.7,
+                      "lng": 51.4
+                    }
+                  }
+                },
+                "zeroCoordinates": {
+                  "summary": "Valid zero coordinates",
+                  "value": {
+                    "userId": "origin-user",
+                    "coordinate": {
+                      "lat": 0,
+                      "lng": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Location upserted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "message"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Location upserted successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid service bearer token when location authentication is enabled",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "413": {
+            "description": "JSON request body exceeds 32 KB",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request encoding or charset",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (when the optional per-replica limiter is enabled)",
+            "headers": {
+              "X-Nearby-Rejection-Reason": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Machine-readable controlled rejection reason (rate_limit)"
+              },
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "503": {
+            "description": "Service temporarily overloaded or database unavailable",
+            "headers": {
+              "X-Nearby-Rejection-Reason": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Machine-readable controlled rejection reason when the failure is intentionally shed/retryable"
+              },
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          }
+        },
+        "operationId": "upsertLocation",
         "parameters": [
           {
             "$ref": "#/components/parameters/ResponseLanguage"
           }
-        ],
-        "operationId": "upsertLocation",
-        "summary": "Create or update a user's location",
-        "description": "Stores one current location per userId. Reusing an identifier updates coordinate and updatedAt, preserving createdAt. Identifiers are trimmed and must contain well-formed Unicode without NUL. Coordinate values must be JSON numbers. Execute performs a real write.",
-        "requestBody": {
-          "$ref": "#/components/requestBodies/UpsertLocation"
-        },
-        "responses": {
-          "200": {
-            "$ref": "#/components/responses/LocationUpserted"
-          },
-          "400": {
-            "$ref": "#/components/responses/InvalidUpsert"
-          },
-          "413": {
-            "$ref": "#/components/responses/RequestTooLarge"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedEncoding"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          }
-        }
+        ]
       }
     },
     "/location/nearby": {
@@ -981,86 +1069,345 @@
         "tags": [
           "Location"
         ],
+        "summary": "Find nearby users",
+        "description": "Find fresh nearby user locations within a bounded radius. Each data item includes the stored coordinate of that result user. Supports offset and cursor pagination. When LOCATION_AUTH_MODE=bearer, send Authorization: Bearer <token>.",
+        "security": [
+          {
+            "locationBearerAuth": []
+          }
+        ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/ResponseLanguage"
+            "in": "query",
+            "name": "pagination",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "offset",
+                "cursor"
+              ],
+              "default": "offset"
+            },
+            "required": false,
+            "description": "Use cursor for deep/streaming pagination. Supplying cursor also selects cursor mode."
           },
           {
             "in": "query",
             "name": "page",
-            "description": "One-based page. Both page and (page - 1) * pageSize must be safe integers. Separate pages do not share a database snapshot.",
             "schema": {
               "type": "integer",
-              "minimum": 1,
-              "maximum": 9007199254740991,
               "default": 1,
-              "example": 1,
-              "description": "One-based page. Both page and (page - 1) * pageSize must be safe integers. Separate pages do not share a database snapshot."
-            }
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "required": false,
+            "description": "Offset page number. Cannot be combined with cursor mode."
           },
           {
             "in": "query",
             "name": "pageSize",
-            "description": "Number of results per page, from 1 through 100.",
             "schema": {
               "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
               "default": 10,
-              "example": 10,
-              "description": "Number of results per page, from 1 through 100."
-            }
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "description": "Number of items per page"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2400
+            },
+            "required": false,
+            "description": "Opaque nextCursor returned by a previous response"
           },
           {
             "in": "query",
             "name": "maxDistance",
-            "description": "Inclusive search radius in meters. Positive numeric strings are also accepted at runtime. Defaults and limits reflect this process configuration.",
             "schema": {
               "type": "number",
+              "default": 10000,
               "minimum": 0,
               "exclusiveMinimum": true,
-              "maximum": 100000,
-              "default": 10000,
-              "example": 10000,
-              "description": "Inclusive search radius in meters. Positive numeric strings are also accepted at runtime. Defaults and limits reflect this process configuration."
-            }
+              "maximum": 100000
+            },
+            "required": false,
+            "description": "Maximum distance in meters"
           },
           {
             "in": "query",
             "name": "excludeUserId",
-            "description": "Optional identifier to omit. The requester is not excluded automatically. Trimmed identifier containing well-formed Unicode and no NUL. Length is measured after trimming, in UTF-16 code units. Identifier ownership is enforced by the deployment, not this service.",
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 255,
-              "pattern": "^[^\\u0000]*$",
-              "description": "Optional identifier to omit. The requester is not excluded automatically. Trimmed identifier containing well-formed Unicode and no NUL. Length is measured after trimming, in UTF-16 code units. Identifier ownership is enforced by the deployment, not this service."
-            }
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "User id to exclude from the result set (typically the requester)"
+          },
+          {
+            "$ref": "#/components/parameters/ResponseLanguage"
           }
         ],
-        "operationId": "findNearbyUsers",
-        "summary": "Search fresh nearby locations",
-        "description": "Start with Search center only to use query inputs. Body fields override matching query fields. Radius is inclusive and measured in meters; stale rows are excluded before ranking. Results use the existing distance/recency score, then userId, and include each matched user's stored coordinates. The requester is excluded only when excludeUserId is supplied.",
         "requestBody": {
-          "$ref": "#/components/requestBodies/NearbySearch"
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NearbyRequest"
+              },
+              "examples": {
+                "centerOnly": {
+                  "summary": "Search center only",
+                  "value": {
+                    "coordinate": {
+                      "lat": 35.6892,
+                      "lng": 51.389
+                    }
+                  }
+                },
+                "cursorFirst": {
+                  "summary": "First cursor page",
+                  "value": {
+                    "coordinate": {
+                      "lat": 35.6892,
+                      "lng": 51.389
+                    },
+                    "pagination": "cursor",
+                    "pageSize": 10
+                  }
+                },
+                "excludeRequester": {
+                  "summary": "Exclude the test user",
+                  "value": {
+                    "coordinate": {
+                      "lat": 35.6892,
+                      "lng": 51.389
+                    },
+                    "excludeUserId": "demo-user"
+                  }
+                }
+              }
+            }
+          }
         },
         "responses": {
           "200": {
-            "$ref": "#/components/responses/NearbyResults"
+            "description": "Nearby users fetched successfully, including each stored coordinate in data.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NearbyOffsetResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NearbyCursorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
           },
           "400": {
-            "$ref": "#/components/responses/InvalidNearby"
+            "description": "Invalid request data or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid service bearer token when location authentication is enabled",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
           },
           "413": {
-            "$ref": "#/components/responses/RequestTooLarge"
+            "description": "JSON request body exceeds 32 KB",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
           },
           "415": {
-            "$ref": "#/components/responses/UnsupportedEncoding"
+            "description": "Unsupported request encoding or charset",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (when the optional per-replica limiter is enabled)",
+            "headers": {
+              "X-Nearby-Rejection-Reason": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Machine-readable controlled rejection reason (rate_limit)"
+              },
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
           },
           "500": {
-            "$ref": "#/components/responses/InternalError"
+            "description": "Internal server error",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "503": {
+            "description": "Service temporarily overloaded or database unavailable",
+            "headers": {
+              "X-Nearby-Rejection-Reason": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Machine-readable controlled rejection reason when the failure is intentionally shed/retryable"
+              },
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
           }
-        }
+        },
+        "operationId": "findNearbyUsers"
       }
     },
     "/health/live": {
@@ -1068,19 +1415,37 @@
         "tags": [
           "Health"
         ],
+        "summary": "Liveness check",
+        "responses": {
+          "200": {
+            "description": "Process is alive",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          }
+        },
+        "operationId": "getLiveness",
         "parameters": [
           {
             "$ref": "#/components/parameters/ResponseLanguage"
           }
-        ],
-        "operationId": "getLiveness",
-        "summary": "Check process liveness",
-        "description": "Returns immediately without using PostgreSQL. A successful response proves only that the HTTP process can answer.",
-        "responses": {
-          "200": {
-            "$ref": "#/components/responses/Live"
-          }
-        }
+        ]
       }
     },
     "/health/ready": {
@@ -1088,23 +1453,62 @@
         "tags": [
           "Health"
         ],
+        "summary": "Readiness check",
+        "description": "Verifies that the process is accepting traffic and PostgreSQL is reachable. Returns 503 during startup/drain.",
+        "responses": {
+          "200": {
+            "description": "Service is ready",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          },
+          "503": {
+            "description": "Process is starting/draining or database is unavailable",
+            "headers": {
+              "Content-Language": {
+                "description": "Language used for human-readable response text.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "en",
+                    "fa"
+                  ]
+                }
+              },
+              "Vary": {
+                "description": "Includes Accept-Language.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Accept-Language"
+              }
+            }
+          }
+        },
+        "operationId": "getReadiness",
         "parameters": [
           {
             "$ref": "#/components/parameters/ResponseLanguage"
           }
-        ],
-        "operationId": "getReadiness",
-        "summary": "Check database connectivity",
-        "description": "Runs SELECT 1 through the pool. It does not verify migrations, the locations table, or spatial queries. After deployment, also test upsert and nearby operations.",
-        "responses": {
-          "200": {
-            "$ref": "#/components/responses/Ready"
-          },
-          "503": {
-            "$ref": "#/components/responses/NotReady"
-          }
-        }
+        ]
       }
     }
-  }
+  },
+  "tags": []
 }

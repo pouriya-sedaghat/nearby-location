@@ -1,0 +1,53 @@
+# Optional least-privilege namespace-scoped RBAC for the release orchestrator.
+# Bind your CI identity to this ServiceAccount using your platform's preferred
+# workload identity/OIDC mechanism. Avoid storing long-lived ServiceAccount tokens.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nearby-release-runner
+  labels:
+    app.kubernetes.io/name: nearby-location
+    app.kubernetes.io/component: release
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nearby-release-runner
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["nearby-location-canary"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nearby-release-runner
+subjects:
+  - kind: ServiceAccount
+    name: nearby-release-runner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nearby-release-runner

@@ -1,67 +1,71 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const test = require("node:test");
-const config = require("../dist/config/env").parseConfig({ DATABASE_URL: "postgresql://test.invalid/nearby" });
-const buildOpenApiSpec = require("../dist/config/openapi").createOpenApiSpec;
-const createOpenApiSpec = () => buildOpenApiSpec(config);
-const root = path.resolve(__dirname, "..");
-test("OpenAPI declares every baseline route and the additive coordinate response", () => {
+
+process.env.NODE_ENV = "test";
+const { createOpenApiSpec } = require("../dist/config/swagger");
+
+test("OpenAPI parses all endpoint annotations and describes nearby coordinates in both modes", () => {
   const spec = createOpenApiSpec();
-  assert.deepEqual(Object.keys(spec.paths).sort(), ["/health/live", "/health/ready", "/location/nearby", "/location/upsert"]);
-  assert.equal(spec.info.version, require("../package.json").version);
-  assert.ok(spec.components.schemas.NearbyUser.required.includes("coordinate"));
-  const inspect = (value) => {
-    if (!value || typeof value !== "object") return;
-    if (value.$ref) {
-      assert.ok(value.$ref.startsWith("#/"));
-      const target = value.$ref.slice(2).split("/").reduce((parent, key) => parent?.[key], spec);
-      assert.ok(target, value.$ref);
-    }
-    Object.values(value).forEach(inspect);
-  };
-  inspect(spec);
-  assert.deepEqual(spec, JSON.parse(fs.readFileSync(path.join(root, "docs/openapi.json"), "utf8")));
-});
-test("compiled-only distribution generates the contract without route sources or cwd dependence", () => {
-  const temp = fs.mkdtempSync(path.join(root, ".openapi-test-"));
-  try {
-    fs.cpSync(path.join(root, "dist"), path.join(temp, "dist"), { recursive: true });
-    fs.copyFileSync(path.join(root, "package.json"), path.join(temp, "package.json"));
-    const result = spawnSync(process.execPath, ["-e", `console.log(JSON.stringify(require(${JSON.stringify(path.join(temp, "dist/config/openapi"))}).createOpenApiSpec(${JSON.stringify(config)})))`], { cwd: __dirname, env: process.env, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout.trim()), createOpenApiSpec());
-  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
-});
-test("canonical export ignores unrelated local and process runtime settings", () => {
-  const temp = fs.mkdtempSync(path.join(root, ".openapi-test-"));
-  try {
-    fs.writeFileSync(path.join(temp, ".env"), [
-      "BASE_URL=https://local.invalid",
-      "SWAGGER_AUTH_USERNAME=",
-      "SWAGGER_AUTH_PASSWORD=",
-      "CLEANUP_CRON_SCHEDULE=invalid-local-schedule",
-    ].join("\n"));
-    const result = spawnSync(process.execPath, [path.join(root, "scripts/export-openapi.js"), "--check"], {
-      cwd: temp,
-      env: { ...process.env, BASE_URL: "https://process.invalid", DEFAULT_MAX_DISTANCE_METERS: "invalid",
-        PG_CONN_TIMEOUT_MS: "invalid", SWAGGER_AUTH_PASSWORD: "short", SWAGGER_AUTH_USERNAME: "" },
-      encoding: "utf8",
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /OpenAPI contract is current/);
-  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
-});
-test("disabled Swagger stays unmounted", async () => {
-  const { app } = require("./fixtures/app.factory").createTestApp();
-  const server = await new Promise((resolve) => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
-  try {
-    const url = `http://127.0.0.1:${server.address().port}`;
-    assert.equal((await fetch(`${url}/api-docs/`)).status, 404);
-    assert.equal((await fetch(`${url}/api-docs/openapi.json`)).status, 404);
-  } finally {
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
+  for (const path of ["/location/upsert", "/location/nearby", "/privacy/location/delete", "/privacy/location/delete-exact"]) {
+    assert.ok(spec.paths[path]?.post, `${path} must be documented`);
   }
+  for (const path of ["/health/live", "/health/ready", "/metrics"]) {
+    assert.ok(spec.paths[path]?.get, `${path} must be documented`);
+  }
+  const response = spec.paths["/location/nearby"].post.responses[200].content["application/json"].schema;
+  assert.equal(response.oneOf.length, 2);
+  for (const name of ["NearbyOffsetResponse", "NearbyCursorResponse"]) {
+    assert.equal(spec.components.schemas[name].properties.data.items.$ref, "#/components/schemas/NearbyUser");
+  }
+  assert.ok(spec.components.schemas.NearbyUser.required.includes("coordinate"));
+  assert.equal(spec.components.schemas.NearbyUser.properties.coordinate.$ref, "#/components/schemas/Coordinate");
+  const { MAX_CURSOR_LENGTH } = require("../dist/utils/cursor");
+  assert.equal(spec.components.schemas.NearbyRequest.properties.cursor.maxLength, MAX_CURSOR_LENGTH);
+  const cursorParameter = spec.paths["/location/nearby"].post.parameters.find((parameter) => parameter.name === "cursor");
+  assert.equal(cursorParameter.schema.maxLength, MAX_CURSOR_LENGTH);
+});
+
+test("OpenAPI documents normalized and exact erasure as distinct endpoints", () => {
+  const spec = createOpenApiSpec();
+  const body = (path) => spec.paths[path].post.requestBody.content["application/json"].schema;
+  // The 2.13.5 path keeps its single normalized request shape; no selector field.
+  const normalized = body("/privacy/location/delete");
+  assert.deepEqual(normalized.required, ["userId"]);
+  assert.deepEqual(Object.keys(normalized.properties), ["userId"]);
+  assert.equal(normalized.properties.userId.pattern, "^[^\\u0000-\\u001f\\u007f-\\u009f]*$");
+  // Exact erasure is a separate path, so releases without it answer 404.
+  const exact = body("/privacy/location/delete-exact");
+  assert.deepEqual(exact.required, ["userId"]);
+  assert.equal(exact.additionalProperties, false);
+  assert.equal(exact.properties.userId.pattern, "^[^\\u0000]*$");
+  for (const path of ["/privacy/location/delete", "/privacy/location/delete-exact"]) {
+    assert.deepEqual(spec.paths[path].post.security, [{ privacyBearerAuth: [] }]);
+    assert.ok(spec.paths[path].post.responses[204]);
+  }
+});
+
+test("the full OpenAPI contract and named request examples validate", async () => {
+  const spec = createOpenApiSpec();
+  await require("@apidevtools/swagger-parser").validate(structuredClone(spec));
+  const normalize = value => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (!value || typeof value !== "object") return value;
+    const copy = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalize(item)]));
+    if (copy.exclusiveMinimum === true) { copy.exclusiveMinimum = copy.minimum; delete copy.minimum; }
+    return copy;
+  };
+  const Ajv = require("ajv");
+  const ajv = new Ajv({ strict: false, validateFormats: false });
+  ajv.addSchema({ $id: "contract", components: normalize(spec.components) });
+  const ids = [];
+  for (const item of Object.values(spec.paths)) {
+    for (const operation of Object.values(item)) {
+      assert.ok(operation.operationId); ids.push(operation.operationId);
+      const media = operation.requestBody?.content["application/json"];
+      if (!media?.examples) continue;
+      const validate = ajv.compile(media.schema.$ref ? { $ref: "contract" + media.schema.$ref } : normalize(media.schema));
+      for (const example of Object.values(media.examples)) assert.ok(validate(example.value), JSON.stringify(validate.errors));
+    }
+  }
+  assert.equal(new Set(ids).size, 7);
 });

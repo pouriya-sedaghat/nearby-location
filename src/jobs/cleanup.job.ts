@@ -1,58 +1,127 @@
 import cron from "node-cron";
-import type { AppConfig } from "../config/env";
-import type { LocationRepository } from "../models/location.model";
-import type { Logger } from "../utils/logger";
+import { config } from "../config/env";
+import Location from "../models/location.model";
+import db from "../utils/db";
+import { logger } from "../utils/logger";
+import { metrics } from "../utils/metrics";
+import { lifecycle } from "../utils/lifecycle";
 
-export interface CleanupTask { stop(): Promise<void>; }
-type Schedule = (expression: string, run: () => Promise<void>) => {
-  stop(): void | Promise<void>;
-  destroy(): void | Promise<void>;
-};
+// Stable two-int PostgreSQL advisory-lock namespace for this service/job.
+// Session-level locking ensures only one replica performs cleanup at a time.
+const CLEANUP_LOCK_NAMESPACE = 1_314_089_057;
+const CLEANUP_LOCK_ID = 1;
 
-/** One owned schedule, one active pass, bounded batches and awaited disposal. */
-export const startCleanupJob = (
-  config: AppConfig,
-  locations: Pick<LocationRepository, "deleteStaleLocations">,
-  logger: Logger = console,
-  schedule: Schedule = cron.schedule,
-): CleanupTask => {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Postgres has no equivalent of MongoDB's TTL indexes, so stale-location
+ * cleanup is handled here on a schedule instead. Query-time stale filtering
+ * preserves correctness even between cleanup runs.
+ */
+export const startCleanupJob = () => {
   if (!cron.validate(config.CLEANUP_CRON_SCHEDULE)) {
-    throw new Error(`Invalid CLEANUP_CRON_SCHEDULE: ${config.CLEANUP_CRON_SCHEDULE}`);
+    throw new Error(
+      `Invalid CLEANUP_CRON_SCHEDULE: ${config.CLEANUP_CRON_SCHEDULE}`,
+    );
   }
-  let stopping = false;
+
+  // This mutex prevents overlap inside one process. The advisory lock below is
+  // the cross-replica guard and remains the source of truth in a deployment.
+  let cleanupRunning = false;
+  let stopped = false;
   let activeRun: Promise<void> | undefined;
-  let stopPromise: Promise<void> | undefined;
-  const runCleanup = (): Promise<void> => {
-    if (stopping) return Promise.resolve();
-    if (activeRun) return activeRun;
-    activeRun = (async () => {
-      try {
-        let totalDeleted = 0;
-        while (!stopping) {
-          const deleted = await locations.deleteStaleLocations(config.CLEANUP_BATCH_SIZE);
-          totalDeleted += deleted;
-          if (deleted < config.CLEANUP_BATCH_SIZE) break;
-        }
-        if (totalDeleted > 0) logger.log(`Cleanup job removed ${totalDeleted} stale location(s) in batches`);
-      } catch (error) {
-        logger.error("Cleanup job failed", error);
+  let stopping: Promise<void> | undefined;
+
+  const performCleanup = async () => {
+    if (stopped || lifecycle.isDraining()) return;
+    if (cleanupRunning) {
+      metrics.recordCleanupRun("skipped_local", 0, 0);
+      logger.warn("cleanup_skipped_already_running");
+      return;
+    }
+    cleanupRunning = true;
+    const startedAt = process.hrtime.bigint();
+
+    try {
+      const lockResult = await db.withAdvisoryLock(
+        CLEANUP_LOCK_NAMESPACE,
+        CLEANUP_LOCK_ID,
+        async (client) => {
+          let totalDeleted = 0;
+          let batches = 0;
+          let reachedRunLimit = false;
+
+          while (!stopped && !lifecycle.isDraining() && batches < config.CLEANUP_MAX_BATCHES_PER_RUN) {
+            const deleted = await Location.deleteStaleLocations(
+              config.LOCATION_TTL_DAYS,
+              config.CLEANUP_BATCH_SIZE,
+              client,
+            );
+            totalDeleted += deleted;
+            batches += 1;
+
+            if (deleted < config.CLEANUP_BATCH_SIZE) break;
+
+            if (batches >= config.CLEANUP_MAX_BATCHES_PER_RUN) {
+              reachedRunLimit = true;
+              break;
+            }
+
+            if (config.CLEANUP_BATCH_DELAY_MS > 0) {
+              await sleep(config.CLEANUP_BATCH_DELAY_MS);
+            }
+          }
+
+          return { totalDeleted, batches, reachedRunLimit: reachedRunLimit || lifecycle.isDraining() };
+        },
+      );
+
+      const durationSeconds =
+        Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+
+      if (!lockResult.acquired) {
+        metrics.recordCleanupRun("skipped_lock", 0, durationSeconds);
+        logger.info("cleanup_skipped_advisory_lock", {
+          durationMs: Number((durationSeconds * 1000).toFixed(2)),
+        });
+        return;
       }
-    })().finally(() => { activeRun = undefined; });
-    return activeRun;
+
+      const result = lockResult.value!;
+      metrics.recordCleanupDeleted(result.totalDeleted);
+      metrics.recordCleanupRun(
+        result.reachedRunLimit ? "partial" : "completed",
+        result.batches,
+        durationSeconds,
+      );
+
+      logger.info("cleanup_completed", {
+        totalDeleted: result.totalDeleted,
+        batches: result.batches,
+        reachedRunLimit: result.reachedRunLimit,
+        durationMs: Number((durationSeconds * 1000).toFixed(2)),
+      });
+    } catch (err) {
+      const durationSeconds =
+        Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+      metrics.recordCleanupRun("error", 0, durationSeconds);
+      metrics.recordDbError();
+      logger.error("cleanup_failed", { error: err });
+    } finally {
+      cleanupRunning = false;
+    }
   };
-  const task = schedule(config.CLEANUP_CRON_SCHEDULE, runCleanup);
+
+  const runCleanup = () => activeRun ??= performCleanup().finally(() => { activeRun = undefined; });
+  const task = cron.schedule(config.CLEANUP_CRON_SCHEDULE, runCleanup);
   void runCleanup();
-  return {
-    stop: () => {
-      stopping = true;
-      stopPromise ??= (async () => {
-        try { await task.stop(); }
-        finally {
-          try { await activeRun; }
-          finally { await task.destroy(); }
-        }
-      })();
-      return stopPromise;
-    },
+  const stop = (): Promise<void> => {
+    stopped = true;
+    return stopping ??= (async () => {
+      try { await task.stop(); }
+      finally { try { await activeRun; } finally { await task.destroy(); } }
+    })();
   };
+  return { stop, destroy: stop };
+
 };

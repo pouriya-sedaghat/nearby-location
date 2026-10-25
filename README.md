@@ -1,98 +1,71 @@
 # Nearby Location
 
-A TypeScript and Express service for storing users' latest locations and finding nearby users with PostgreSQL and PostGIS.
+Store each user's current location and discover fresh nearby users with PostgreSQL and PostGIS.
 
-**Application version:** `1.0.0`
+**Package version:** 2.14.0 · **Runtime:** Node.js 24, TypeScript, Express · **Database baseline used by CI:** PostgreSQL 16 / PostGIS 3.4
 
-**Documentation language:** English. The API supports English and Persian human-readable responses through `Accept-Language`; English is the default. Parameter names, numeric values and ISO timestamps stay unchanged. See [Response language](docs/API.md#response-language).
+[Documentation](docs/README.md) · [API](docs/API.md) · [Deployment](docs/DEPLOYMENT.md) · [Development](docs/DEVELOPMENT.md) · [Presentation](docs/PRESENTATION.md)
 
-## Service behavior
+## What the service does
 
-The service stores one current location per `userId`. Nearby searches return locations that meet the configured freshness window and radius. Results are ranked by distance and update time, and include the stored coordinates, distance in meters, and last update timestamp.
+- Creates or replaces one WGS84 location per user.
+- Searches an inclusive radius in meters and returns each matched user's stored coordinates, distance, update timestamp, and English or Persian relative age.
+- Orders results with configurable distance/freshness ranking and supports offset or cursor pagination.
+- Excludes expired rows during reads and deletes them through bounded background cleanup.
+- Provides optional service authentication, signed cursors, privacy erasure, overload protection, health probes, and Prometheus metrics.
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| POST | `/location/upsert` | Create or update a location |
-| POST | `/location/nearby` | Search with radius and pagination |
-| GET | `/health/live` | Check process liveness |
-| GET | `/health/ready` | Check database query availability |
+The calling application owns end-user identity, consent, and authorization to publish or disclose coordinates. See [service scope and operating modes](docs/OVERVIEW.md).
 
-When enabled, Swagger is available at `/api-docs/` with interactive Execute, editable named examples, request snippets, response timing and schema exploration. See the [Swagger guide](docs/SWAGGER.md) for a complete execution workflow. Swagger authentication protects documentation only. Location API access must be controlled by the deployment's access layer.
+## Start a local environment
 
-## Quick start
-
-With Git, Docker and Compose installed, clone the repository and start from its root:
+Install Docker with the Compose plugin, then run:
 
 ```bash
 git clone https://github.com/pouriya-sedaghat/nearby-location.git
 cd nearby-location
 ./scripts/init-env.sh
-sudo docker compose config --quiet
-sudo docker compose up -d --build --wait --wait-timeout 180
-sudo docker compose ps
-curl -fsS http://127.0.0.1:8080/health/ready
+sudo docker compose up --build -d --wait --wait-timeout 180
+curl --fail http://localhost:8080/health/ready
 ```
 
-The default deployment is Docker on Ubuntu Server 26.04 with PostGIS on the same VM. One template, `.env.example`, produces one private configuration file, `.env`. Compose reads it automatically from the project root; no profile or environment-file flags are needed. The initializer is only for the first setup. Preserve `.env` for restarts and upgrades.
+Open [Swagger UI](http://localhost:8080/api-docs/). The default Compose profile uses generated private credentials, binds HTTP to loopback, runs migrations and preserves the existing `nearby-vm_pgdata` volume. Keep the existing `.env` when upgrading; do not rerun initialization. See [development setup](docs/DEVELOPMENT.md) for running Node directly and [deployment](docs/DEPLOYMENT.md) for production configuration.
 
-HTTP is bound to VM loopback; PostGIS has no published host port. Swagger is enabled with generated credentials. Follow [Ubuntu VM deployment](docs/VM_UBUNTU.md) for Docker installation, SSH access and upgrading an earlier VM package. See [Getting started](docs/GETTING_STARTED.md) for the first API requests.
-
-## API example
-
-Create a test location, then search from the same center:
+Publish a synthetic location and search around it:
 
 ```bash
-curl -fsS http://127.0.0.1:8080/location/upsert \
+curl --fail-with-body http://localhost:8080/location/upsert \
   -H 'Content-Type: application/json' \
-  --data '{"userId":"demo-user","coordinate":{"lat":35.6892,"lng":51.389}}'
+  -d '{"userId":"demo_user","coordinate":{"lat":35.6892,"lng":51.389}}'
 
-curl -fsS http://127.0.0.1:8080/location/nearby \
+curl --fail-with-body http://localhost:8080/location/nearby \
   -H 'Content-Type: application/json' \
-  -H 'Accept-Language: en' \
-  --data '{"coordinate":{"lat":35.6892,"lng":51.389},"maxDistance":1000}'
+  -d '{"coordinate":{"lat":35.6892,"lng":51.389},"maxDistance":5000,"pagination":"cursor","pageSize":10}'
 ```
 
-Set `Accept-Language: fa` for Persian messages and display ages. `updatedAt` is the stored ISO timestamp; `updateStatus` is recalculated at each request's start. See [API semantics](docs/API.md) for ranking, pagination, time units and validation rules.
+These examples assume local authentication is disabled. Protected deployments require the appropriate bearer token; see [API examples](docs/API.md).
 
-## Development checks
+Stop the environment with `docker compose down`. This preserves the database volume.
 
-With Node.js 24, npm and Python 3 installed:
+## Choose your next guide
 
-```bash
-npm ci --ignore-scripts
-npm run typecheck
-npm test
-npm run openapi:check
-```
+| Goal | Guide |
+|---|---|
+| Understand capabilities and mode choices | [Overview](docs/OVERVIEW.md) |
+| Understand SQL, ranking, pagination, and lifecycle | [Architecture and diagrams](docs/ARCHITECTURE.md) |
+| Integrate a caller | [API contract](docs/API.md) and [OpenAPI JSON](docs/openapi.json) |
+| Configure an environment | [Configuration reference](docs/CONFIGURATION.md) |
+| Develop or contribute | [Development](docs/DEVELOPMENT.md) |
+| Deploy a container or Kubernetes environment | [Deployment](docs/DEPLOYMENT.md) |
+| Evaluate an isolated VM | [VM procedure](docs/VM_TESTING.md) |
+| Monitor, troubleshoot, or release | [Operations](docs/OPERATIONS.md) |
+| Validate correctness and capacity | [Testing and tooling](docs/TESTING.md) |
+| Review security and retention | [Security](docs/SECURITY.md) and [Privacy](docs/PRIVACY_AND_RETENTION.md) |
+| Present the microservice | [Presentation outline and speaker notes](docs/PRESENTATION.md) |
 
-The default tests use isolated fake persistence. Real spatial-query tests require a dedicated disposable PostGIS database and are skipped without `INTEGRATION_DATABASE_URL`. See [Testing](docs/TESTING.md) for integration and optional Swagger DOM checks.
+## Production acceptance
 
-## Documentation
+The repository contains deployment examples and validation tools. Accept a release against its exact commit/image and target environment using the [production readiness gates](docs/PRODUCTION_READINESS.md). Replica count, pool size, latency targets, recovery objectives, and retention policy require environment-specific evidence.
 
-| Guide | Coverage |
-| --- | --- |
-| [Getting started](docs/GETTING_STARTED.md) | Single-path setup and first requests |
-| [API reference](docs/API.md) | Contracts, validation, responses, and errors |
-| [Interactive Swagger](docs/SWAGGER.md) | Execute requests, examples, console controls, authentication and troubleshooting |
-| [Configuration](docs/CONFIGURATION.md) | Variables, defaults, and precedence |
-| [Architecture](docs/ARCHITECTURE.md) | Components and request processing |
-| [Database](docs/DATABASE.md) | Schema, indexes, migrations, and TTL |
-| [Deployment](docs/DEPLOYMENT.md) | Docker lifecycle, optional direct execution, and rollback |
-| [Ubuntu VM deployment](docs/VM_UBUNTU.md) | Ubuntu Server 26.04, Docker, local PostGIS, private configuration, access and backups |
-| [Operations](docs/OPERATIONS.md) | Health checks, logs, maintenance, and troubleshooting |
-| [Testing](docs/TESTING.md) | Database-independent and real PostGIS tests |
-| [Development](docs/DEVELOPMENT.md) | Project structure, commands, and contract maintenance |
-| [Performance](docs/PERFORMANCE.md) | SQL, benchmarks, and result interpretation |
-| [Security](docs/SECURITY.md) | Access boundaries, TLS, and dependency findings |
-| [Package validation](docs/VALIDATION.md) | Executed checks and limitations |
-| [OpenAPI](docs/openapi.json) | Importable machine-readable contract |
-| [Contributing](CONTRIBUTING.md) | Development workflow and pull request checks |
-| [Changelog](CHANGELOG.md) | Published version history |
+For historical application changes, read the [changelog](CHANGELOG.md). For this release, read the [review results](docs/RELEASE_REVIEW.md) and [upgrade guide](docs/UPGRADING.md). The supplied documentation review remains a historical record.
 
-## Runtime defaults
-
-The default port is `8080`, default search radius is `10000` meters, default maximum radius is `100000` meters, and default location TTL is `7` days. See [Configuration](docs/CONFIGURATION.md) for overrides.
-
-The application image uses Node.js 24 Alpine and installs only production dependencies in its final stage. The Compose database uses PostgreSQL 16 and PostGIS 3.6 on amd64/x86-64. For direct execution, use Node.js 24 and a separately reachable database with PostGIS. The VM does not need Node.js or PostgreSQL installed on the host.
-
-The project uses the [ISC license](LICENSE). Consult [Package validation](docs/VALIDATION.md) for executed checks and the scope of deployment verification.
+The project uses the [ISC license](LICENSE). See [Contributing](CONTRIBUTING.md) for focused development and validation requirements.

@@ -1,14 +1,20 @@
 import z from "zod";
-import type { ResponseLanguage } from "../i18n/language";
-import { message } from "../i18n/messages";
 
-export const createCoordinateSchema = (language: ResponseLanguage = "en") => z.object({
-  lat: z.number({ error: issue => message(language, issue.input === undefined ? "requiredLatitude" : "invalidLatitude") })
-    .min(-90, message(language, "minimumLatitude"))
-    .max(90, message(language, "maximumLatitude")),
-  lng: z.number({ error: issue => message(language, issue.input === undefined ? "requiredLongitude" : "invalidLongitude") })
-    .min(-180, message(language, "minimumLongitude"))
-    .max(180, message(language, "maximumLongitude")),
+const latitudeSchema = z
+  .number({
+    error: issue => issue.input === undefined ? "Required latitude" : "Invalid latitude",
+  })
+  .min(-90, "The minimum latitude is -90")
+  .max(90, "The maximum latitude is 90.");
+
+const longitudeSchema = z
+  .number({
+    error: issue => issue.input === undefined ? "Required longitude" : "Invalid longitude",
+  })
+  .min(-180, "The minimum longitude is -180")
+  .max(180, "The maximum longitude is 180");
+
+export const coordinateSchema = z.object({
+  lat: latitudeSchema,
+  lng: longitudeSchema,
 });
-
-export const coordinateSchema = createCoordinateSchema();

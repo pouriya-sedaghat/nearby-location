@@ -1,0 +1,65 @@
+name: Release canary and promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: Immutable container image reference (repository@sha256:...)
+        required: true
+        type: string
+      namespace:
+        description: Kubernetes namespace
+        required: true
+        default: nearby
+        type: string
+      observation_seconds:
+        description: Synthetic canary observation window in seconds
+        required: true
+        default: "60"
+        type: string
+
+env:
+  IMAGE_REF: ${{ inputs.image_ref }}
+  KUBE_NAMESPACE: ${{ inputs.namespace }}
+  RELEASE_OBSERVATION_SECONDS: ${{ inputs.observation_seconds }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nearby-production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24
+        with:
+          node-version: 24
+      - name: Configure kubeconfig
+        shell: bash
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$KUBE_CONFIG_B64"
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBE_CONFIG_B64" | base64 --decode > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Cluster identity
+        run: |
+          kubectl config current-context
+          kubectl -n "$KUBE_NAMESPACE" get deployment nearby-location
+      - name: Release
+        run: ./deploy/kubernetes/release/release.sh
+
+      - name: Remove kubeconfig
+        if: always()
+        run: rm -f "$HOME/.kube/config"

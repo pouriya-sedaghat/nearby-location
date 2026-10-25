@@ -1,12 +1,10 @@
+import { apiMessage } from "../i18n/response";
 import { createHash, timingSafeEqual } from "crypto";
 import { NextFunction, Request, Response } from "express";
-import type { AppConfig } from "../config/env";
-import { message } from "../i18n/messages";
-import { responseLanguage } from "./request-context.middleware";
+import { config } from "../config/env";
 
 /** Browser-native documentation login, separate from API service credentials. */
-export const swaggerAuthorizationMiddleware = (config: Pick<AppConfig,
-  "SWAGGER_AUTH_USERNAME" | "SWAGGER_AUTH_PASSWORD">) => {
+export const swaggerAuthorizationMiddleware = () => {
   const username = config.SWAGGER_AUTH_USERNAME;
   const password = config.SWAGGER_AUTH_PASSWORD;
   const expected = username && password
@@ -30,6 +28,6 @@ export const swaggerAuthorizationMiddleware = (config: Pick<AppConfig,
     )) return next();
 
     res.setHeader("WWW-Authenticate", 'Basic realm="nearby-api-docs", charset="UTF-8"');
-    return res.status(401).json({ success: false, message: message(responseLanguage(res), "unauthorized") });
+    return res.status(401).json({ success: false, message: apiMessage(res, "Unauthorized") });
   };
 };

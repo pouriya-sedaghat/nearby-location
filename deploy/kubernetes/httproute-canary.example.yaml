@@ -1,0 +1,18 @@
+# Optional Gateway API example for a 95/5 stable/canary split. Replace the
+# parent Gateway name/namespace to match your cluster. Do not apply blindly.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: nearby-location-canary-split
+spec:
+  parentRefs:
+    - name: replace-me-gateway
+      namespace: replace-me-namespace
+  rules:
+    - backendRefs:
+        - name: nearby-location
+          port: 80
+          weight: 95
+        - name: nearby-location-canary
+          port: 80
+          weight: 5

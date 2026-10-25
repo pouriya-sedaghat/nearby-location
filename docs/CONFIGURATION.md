@@ -1,101 +1,149 @@
 # Configuration reference
 
-[Documentation index](../README.md)
+[Documentation index](README.md) · [Deployment](DEPLOYMENT.md) · [Operations](OPERATIONS.md)
 
 ## Loading and precedence
 
-There is one template (`.env.example`) and one private configuration file (`.env`). From the project root, run `./scripts/init-env.sh` once to generate independent database and documentation passwords. Never generate new credentials for a routine restart or upgrade.
+Run from the repository root. The server and database tools load only `.env`, without overriding exported variables. Precedence is **process environment → `.env` → application defaults**. `NODE_ENV` changes runtime behavior, not the configuration filename.
 
-The service entrypoint explicitly calls `loadConfig()`, which reads only `.env` from the working directory. `parseConfig(values)` is pure; importing application modules does not load files or modify process state. The standalone migration wrapper also reads `.env`. Precedence is:
+The runtime validates configuration with [Zod](../src/config/env.ts) and fails startup on invalid values. Boolean environment values must be the literal strings `true` or `false`. Numeric values cannot be empty or whitespace-only; such a value fails startup instead of becoming `0` (an explicit `0` remains valid where the range allows it). Only optional Swagger switches treat an empty value as an omitted/default value. Optional secret fields treat whitespace-only values as absent.
 
-1. Existing process environment variables.
-2. `.env`.
-3. Application defaults (the migration CLI has its own defaults).
+The tables list every application variable. Numeric values use the units in the table. `unset` means there is no default. Operational-tool variables are described in [testing](TESTING.md) and [operations](OPERATIONS.md); they have their own validation and are not all runtime settings.
 
-`NODE_ENV` controls runtime mode and Swagger defaults; it does not select another file. Express receives the validated mode explicitly from the application factory. Run commands from the project root. The application validates settings before connecting to PostgreSQL; the migration wrapper forwards its database settings without running the full application schema.
+## Runtime and documentation
 
-Docker Compose reads `.env` automatically for interpolation. Only the settings explicitly mapped in `docker-compose.yaml` reach each container; the file is not copied into the image or mounted into containers. Compose fixes production mode, UTC and the internal database URL. Existing shell variables and Compose control variables can override file values or select a different project; remove stale overrides. Privileged commands use the environment seen by `sudo`.
+| Variable | Application default | Constraints and purpose |
+|---|---|---|
+| `NODE_ENV` | `production` | `production`, `development`, or `test`; `production` limits diagnostic error detail |
+| `PORT` | `8080` | Integer 1–65,535 |
+| `BASE_URL` | `/` | HTTP(S) URL or absolute path; no credentials, query, fragment, whitespace, or backslash; OpenAPI server only |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `SWAGGER_ENABLED` | True in development, false otherwise | Mount UI and live OpenAPI routes; empty preserves default |
+| `SWAGGER_TRY_IT_OUT_ENABLED` | True in development, false otherwise | UI execution; empty preserves default |
+| `SWAGGER_AUTH_USERNAME` | unset | 1–64 characters; letters, digits, underscore, dot, hyphen; configured with password |
+| `SWAGGER_AUTH_PASSWORD` | unset | 32–256 printable ASCII characters without spaces; required for enabled docs outside development |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` | Positive integer up to 2,147,483,647; total shutdown deadline |
+| `SHUTDOWN_DRAIN_DELAY_MS` | `2000` | Integer 0–120,000, strictly below shutdown timeout; routing propagation delay |
+| `RUN_MIGRATIONS_ON_STARTUP` | `true` | Docker entrypoint only; direct Node starts never run migrations automatically |
 
-Configuration changes require container recreation with `sudo docker compose up -d --wait --wait-timeout 180`. `restart` keeps the recorded environment. Never print resolved Compose configuration in shared logs; validate with `config --quiet`.
+## Database
 
-## Application variables
-
-Names are case-sensitive. Boolean variables accept only the exact strings `true` and `false`. Count settings are integers; timeout units are milliseconds.
-
-| Variable | Default | Constraint and purpose |
-| --- | --- | --- |
-| `NODE_ENV` | `production` | Non-empty string; runtime mode and Swagger defaults |
-| `PORT` | `8080` | Integer 1-65535; HTTP port |
-| `BASE_URL` | `/` | Absolute path or HTTP(S) URL without credentials, query, fragment, raw whitespace, or backslashes; OpenAPI server URL only |
-| `SWAGGER_ENABLED` | `true` in development; `false` elsewhere | Mounts UI, assets, and live OpenAPI |
-| `SWAGGER_TRY_IT_OUT_ENABLED` | `true` | Opens Try it out and enables GET/POST Execute buttons when Swagger is enabled; explicit `false` keeps documentation read-only |
-| `SWAGGER_AUTH_USERNAME` | Unset | 1-64 characters from `A-Z a-z 0-9 _ . -`; requires the password |
-| `SWAGGER_AUTH_PASSWORD` | Unset | 32-256 printable non-space ASCII characters; requires the username |
-| `DATABASE_URL` | Required | Valid `postgres:` or `postgresql:` URI; encode credentials, path spaces and reserved characters as URL components |
-| `LOCATION_TTL_DAYS` | `7` | Positive integer; search freshness and deletion threshold |
-| `CLEANUP_CRON_SCHEDULE` | `0 3 * * *` | Cron validated before database connection; 03:00 in the process timezone |
-| `CLEANUP_BATCH_SIZE` | `5000` | Integer 1-50000; rows per deletion batch |
-| `DEFAULT_MAX_DISTANCE_METERS` | `10000` | Positive number up to 20000000 meters; default `maxDistance` |
-| `MAX_MAX_DISTANCE_METERS` | `100000` | Positive number up to 20000000 meters; inclusive radius ceiling |
+| Variable | Application default | Constraints and purpose |
+|---|---|---|
+| `DATABASE_URL` | Required in production; local fallback in test/development | Valid PostgreSQL URI without whitespace or malformed credential escaping |
 | `PG_POOL_MAX` | `10` | Positive integer; maximum connections per process |
-| `PG_IDLE_TIMEOUT_MS` | `30000` | Integer 0-2147483647; zero disables idle connection timeout |
-| `PG_CONN_TIMEOUT_MS` | `5000` | Integer 1-2147483647; connection acquisition timeout |
-| `PG_STATEMENT_TIMEOUT_MS` | `2000` | Integer 1-2147483647; PostgreSQL statement timeout |
-| `PG_CONNECT_RETRIES` | `10` | Positive integer; startup connection attempts |
-| `PG_CONNECT_BASE_DELAY_MS` | `1000` | Positive integer; initial exponential retry delay, capped at 30000 |
-| `PG_SSL` | `false` | When true, applies explicit TLS options to the pool and migrations |
-| `PG_SSL_REJECT_UNAUTHORIZED` | `true` | Certificate validation policy when explicit TLS is applied |
+| `PG_APPLICATION_NAME` | `nearby-location` | Trimmed 1–63 characters; database diagnostics |
+| `PG_KEEP_ALIVE_INITIAL_DELAY_MS` | `10000` | Integer 0–300,000 |
+| `PG_IDLE_TIMEOUT_MS` | `30000` | Integer 0–2,147,483,647; `0` disables idle-connection eviction |
+| `PG_CONN_TIMEOUT_MS` | `5000` | Positive integer up to 2,147,483,647 |
+| `PG_STATEMENT_TIMEOUT_MS` | `2000` | Positive integer up to 2,147,483,647; foreground statements |
+| `PG_CONNECT_RETRIES` | `10` | Positive integer; startup attempts |
+| `PG_CONNECT_BASE_DELAY_MS` | `1000` | Positive integer up to 2,147,483,647; exponential startup delay, capped at 30 seconds per wait |
+| `PG_SSL` | `false` | Enable explicit TLS connection options |
+| `PG_SSL_REJECT_UNAUTHORIZED` | `true` | Verify certificates when explicit TLS is enabled |
 
-`DEFAULT_MAX_DISTANCE_METERS` must not exceed `MAX_MAX_DISTANCE_METERS`. Blank radius settings are invalid. There is no fallback database credential. Direct Node execution requires `DATABASE_URL`; Compose continues to construct it from the existing generated password. Invalid connection configuration fails before opening a pool or listener, with a message that does not print the supplied URI.
+**TLS configuration:** use one owner. With `PG_SSL=true`, remove URL parameters `ssl`, `sslmode`, `sslcert`, `sslkey`, `sslrootcert`, `uselibpqcompat`, and `sslnegotiation`; conflicting configuration is rejected. Alternatively let the connection URL own TLS while `PG_SSL=false`, and review those URL semantics explicitly. Prefer verified TLS and provision trusted certificates through the deployment platform. Server and database tools share [these checks](../scripts/lib/postgres-options.js).
 
-## Swagger rules
+The supplied Kubernetes Secret example has no URL TLS parameters, so it matches the ConfigMap's explicit verified TLS (`PG_SSL=true`, `PG_SSL_REJECT_UNAUTHORIZED=true`); a regression test loads the unchanged pair through the server and migration checks. Keep URL TLS parameters out of your real Secret while the ConfigMap owns TLS. See [deployment preparation](DEPLOYMENT.md#prepare-cluster-specific-files).
 
-Username and password must be set together, even when Swagger is disabled. Both are mandatory when Swagger is enabled outside development. In development, setting the pair also requires documentation login.
+## Search and ranking
 
-`SWAGGER_TRY_IT_OUT_ENABLED=false` disables UI execution without changing access to direct HTTP requests. `BASE_URL` does not move Express routes. A reverse proxy that adds a prefix must configure routing separately.
+| Variable | Application default | Constraints and purpose |
+|---|---|---|
+| `DEFAULT_MAX_DISTANCE_METERS` | `10000` | Positive; at most the configured maximum |
+| `MAX_MAX_DISTANCE_METERS` | `100000` | Positive finite number up to 20,000,000; API radius cap |
+| `RANKING_MODE` | `legacy` | `legacy` or `decay`; shared across a serving fleet |
+| `RANKING_DISTANCE_SCALE_METERS` | `2000` | Positive finite number up to 20,000,000; decay spatial scale |
+| `RANKING_FRESHNESS_HALF_LIFE_MINUTES` | `60` | Positive finite number up to 525,600 |
+| `RANKING_DISTANCE_WEIGHT` | `0.65` | Finite 0–1,000,000 |
+| `RANKING_FRESHNESS_WEIGHT` | `0.35` | Finite 0–1,000,000; sum of weights must be positive |
 
-## Compose settings
+Changing the decay mode/profile changes ranking and invalidates existing decay cursors. Validate ordering and rollout behavior before changing fleet settings. The [architecture](ARCHITECTURE.md#ranking) explains the formulas.
 
-| Setting | Source and behavior |
-| --- | --- |
-| `POSTGRES_PASSWORD` | Required in `.env`; generated as 64 hexadecimal characters; used by PostGIS and to construct the application's `DATABASE_URL` |
-| `SWAGGER_AUTH_PASSWORD` | Required in `.env`; generated independently as 48 hexadecimal characters |
-| `SWAGGER_AUTH_USERNAME` | `docs_operator` in the template and Compose fallback |
-| `SWAGGER_ENABLED` | `true` in the template and Compose fallback; credentials remain required by this deployment |
-| `SWAGGER_TRY_IT_OUT_ENABLED` | `true` in the template and Compose fallback |
-| `PORT` | `8080`; the same host/container port, published only at `127.0.0.1` |
-| `BASE_URL` | `/`; OpenAPI server URL, not Express route mounting |
-| Other settings in `.env.example` | Explicitly forwarded to the application with the defaults shown above |
-| `NODE_ENV`, `TZ` | Fixed to `production` and `UTC` by Compose |
-| `DATABASE_URL` | Constructed inside Compose as `postgresql://nearby:<POSTGRES_PASSWORD>@postgres:5432/nearby`; a host variable with this name does not override it |
-| `PG_SSL` | Fixed to `false` for this local Docker database connection |
-| Project and storage | Project `nearby-vm`, volume key `pgdata`, default volume name `nearby-vm_pgdata` |
+## Cursors and service authentication
 
-The only distributed environment template is `.env.example`. Its passwords are empty, so copying it without initialization fails Compose's required-value validation. The initializer writes `.env` with mode `0600` in the project root, regardless of the caller's working directory. It builds the file privately and publishes it atomically without replacing files, directories or symlinks. A failed attempt cleans up its temporary file. It requires a Linux host with GNU coreutils, a POSIX shell and OpenSSL.
+| Variable | Application default | Constraints and purpose |
+|---|---|---|
+| `CURSOR_MAX_AGE_MINUTES` | `60` | Integer 1–10,080; v3 session and decay reference lifetime |
+| `CURSOR_SIGNING_SECRET` | unset | At least 32 characters; signs new cursors |
+| `CURSOR_SIGNING_PREVIOUS_SECRET` | unset | At least 32 characters; verification during rotation; requires primary key |
+| `CURSOR_REQUIRE_SIGNATURE` | `false` | Reject unsigned cursors; requires primary signing key |
+| `LOCATION_AUTH_MODE` | `disabled` | `disabled` or `bearer` |
+| `LOCATION_AUTH_TOKEN` | unset | Required in bearer mode; token rules below |
+| `LOCATION_AUTH_PREVIOUS_TOKEN` | unset | Accepted during rotation; requires primary token |
+| `METRICS_AUTH_MODE` | `disabled` | `disabled` or `bearer` |
+| `METRICS_AUTH_TOKEN` | unset | Required in bearer mode |
+| `METRICS_AUTH_PREVIOUS_TOKEN` | unset | Accepted during rotation; requires primary token |
+| `PRIVACY_API_ENABLED` | `false` | Mount normalized and exact erasure routes; requires privacy token |
+| `PRIVACY_AUTH_TOKEN` | unset | Dedicated erasure token |
+| `PRIVACY_AUTH_PREVIOUS_TOKEN` | unset | Accepted during rotation; requires primary token |
+| `HTTP_TRUST_PROXY` | `false` | When true, Express trusts proxy headers; enable only behind a fully controlled ingress boundary |
 
-Keep database passwords hexadecimal for URL interpolation. Changing `POSTGRES_PASSWORD` in `.env` does not rotate an initialized PostgreSQL role's stored password; coordinate SQL password rotation and container configuration. Preserve the existing file and volume across releases. For an earlier VM package using `.env.vm`, follow the one-time rename in [Ubuntu VM deployment](VM_UBUNTU.md).
+Bearer tokens require at least 32 printable ASCII characters without spaces. Use independently generated values for each surface and for cursor signing. Secrets are fixed at process initialization; changing a Secret or environment file requires a process/pod restart. See [rotation](OPERATIONS.md#credential-and-cursor-key-rotation).
 
-The source ZIP, Git ignore rules and Docker build ignore rules exclude real environment files. Docker administrators can inspect container environments; restrict host and Docker access. For optional direct Node execution, supply `DATABASE_URL` for a separately reachable database as described in [Deployment](DEPLOYMENT.md); the VM's PostGIS port is not published.
+## Retention and cleanup
 
-## TLS and migrations
+| Variable | Application default | Constraints and purpose |
+|---|---|---|
+| `LOCATION_TTL_DAYS` | `7` | Positive integer; read eligibility and physical cleanup policy |
+| `CLEANUP_CRON_SCHEDULE` | `0 3 * * *` | Nonempty valid node-cron expression; process timezone |
+| `CLEANUP_BATCH_SIZE` | `5000` | Integer 1–50,000 |
+| `CLEANUP_MAX_BATCHES_PER_RUN` | `100` | Integer 1–10,000 |
+| `CLEANUP_BATCH_DELAY_MS` | `25` | Integer 0–60,000 between full batches |
+| `CLEANUP_STATEMENT_TIMEOUT_MS` | `15000` | Integer 1–600,000; transaction-local cleanup statement limit |
+| `CLEANUP_LOCK_TIMEOUT_MS` | `1000` | Integer 0–60,000; transaction-local lock limit; `0` disables it |
 
-With `PG_SSL=true`, the application gets `rejectUnauthorized` from the corresponding variable. The migration wrapper forwards that policy to its CLI. An explicit `--reject-unauthorized` migration argument takes precedence over the wrapper setting. The driver also interprets TLS options in the connection URL; keep URL and environment settings consistent.
+Cleanup also runs at startup. The default cap is 500,000 selected deletions per run, subject to available stale rows and successful batches. Read eligibility does not wait for cleanup. Choose retention and cleanup lag with the data owner; see [privacy](PRIVACY_AND_RETENTION.md).
 
-`PG_SSL=false` means the application adds no explicit TLS option. It does not guarantee a non-TLS connection if the URL or driver environment enables TLS.
+## Admission, adaptive control, and rate limiting
 
-## Tool variables
+| Variable | Application default | Constraints and purpose |
+|---|---|---|
+| `ADMISSION_ENABLED` | `true` | Enable concurrency, pool-pressure, and circuit admission |
+| `NEARBY_MAX_IN_FLIGHT` | `50` | Integer 1–100,000; per-process nearby cap |
+| `UPSERT_MAX_IN_FLIGHT` | `100` | Integer 1–100,000; per-process upsert cap |
+| `PG_POOL_WAITING_REJECT_THRESHOLD` | `10` | Integer 1–100,000; reject at/above pool waiting threshold |
+| `DB_CIRCUIT_FAILURE_THRESHOLD` | `5` | Integer 1–10,000; consecutive availability failures |
+| `DB_CIRCUIT_OPEN_MS` | `5000` | Integer 1–600,000 |
+| `ADAPTIVE_ADMISSION_ENABLED` | `false` | Adjust effective admission limits locally |
+| `ADAPTIVE_NEARBY_MIN_IN_FLIGHT` | `5` | Integer 1–100,000; at most nearby cap when adaptive enabled |
+| `ADAPTIVE_UPSERT_MIN_IN_FLIGHT` | `10` | Integer 1–100,000; at most upsert cap when adaptive enabled |
+| `ADAPTIVE_NEARBY_LATENCY_TARGET_MS` | `250` | Positive finite number up to 60,000; database-operation latency |
+| `ADAPTIVE_UPSERT_LATENCY_TARGET_MS` | `100` | Positive finite number up to 60,000; database-operation latency |
+| `ADAPTIVE_INITIAL_LIMIT_PERCENT` | `50` | Integer 1–100; initial fraction of each cap |
+| `ADAPTIVE_EWMA_ALPHA` | `0.2` | Finite 0.05–1; smoothing factor |
+| `ADAPTIVE_INCREASE_EVERY` | `20` | Integer 1–100,000; healthy samples before additive increase |
+| `ADAPTIVE_DECREASE_FACTOR` | `0.8` | Finite 0.1–0.95; multiplicative reduction |
+| `ADAPTIVE_DECREASE_COOLDOWN_MS` | `1000` | Integer 0–60,000 |
+| `RATE_LIMIT_ENABLED` | `false` | Local fixed-window IP/workload limiting, independent of admission switch |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Integer 1–3,600,000 |
+| `RATE_LIMIT_NEARBY_MAX` | `120` | Integer 1–10,000,000 per key/window |
+| `RATE_LIMIT_UPSERT_MAX` | `240` | Integer 1–10,000,000 per key/window |
+| `RATE_LIMIT_MAX_KEYS` | `10000` | Integer 1–1,000,000; bounded local key map |
 
-| Variable | Tool | Default or rule |
-| --- | --- | --- |
-| `INTEGRATION_DATABASE_URL` | PostGIS tests | Unset skips the suite; otherwise use a dedicated disposable database |
-| `SWAGGER_DOM_TESTS` | Optional Swagger tests | Only `true` enables DOM interaction tests; requires the separate jsdom QA installation in [Testing](TESTING.md) |
-| `BENCHMARK_LAT` | Benchmark | `35.6892`; latitude rules |
-| `BENCHMARK_LNG` | Benchmark | `51.389`; longitude rules |
-| `BENCHMARK_RADIUS_METERS` | Benchmark | `5000`; application radius rules |
-| `BENCHMARK_PAGE` | Benchmark | `1`; page rules |
-| `BENCHMARK_PAGE_SIZE` | Benchmark | `10`; pageSize rules |
-| `BENCHMARK_ITERATIONS` | Benchmark | `30`; integer 5-10000 |
-| `BENCHMARK_EXCLUDE_USER_ID` | Benchmark | Unset; identifier rules |
-| `BENCHMARK_EXPLAIN` | Benchmark | Only the exact value `true` includes query plans |
+These controls do not apply a fleet-wide quota, and privacy deletion bypasses the location admission controller. Measure actual rejection and latency rates before changing limits. Increasing replicas can exhaust PostgreSQL even if each process stays below its local cap.
 
-Real integration tests delete `locations` data. The benchmark uses a read-only transaction. See [Testing](TESTING.md) and [Performance](PERFORMANCE.md).
+## Deployment profile differences
+
+| Setting | Root Compose | VM evaluation | Kubernetes base |
+|---|---|---|---|
+| Image/runtime | Fixed production target/environment | Production image/environment | Production image/environment |
+| Database | Internal PostGIS with generated private password | Internal PostGIS with generated password | External database from Secret |
+| API exposure | Loopback host port | `127.0.0.1:8080` by default | ClusterIP port 80 → pod 8080 |
+| Startup migrations | Enabled by default | Enabled | Disabled; separate Job |
+| Location / metrics auth | Disabled by default | Bearer / bearer | Disabled compatibility defaults; change for production or enforce an equivalent boundary |
+| Privacy | Disabled by default | Enabled with dedicated token | Disabled by default |
+| Signed cursors required | False by default | True | True; primary key required |
+| Explicit DB TLS | False by default | False on isolated container network | True, certificate verification true |
+| Adaptive admission | False by default | False | True |
+| Shutdown deadline | 10 seconds | 10 seconds | 25 seconds |
+| Platform grace | 60 seconds | 20 seconds | 40 seconds including a 5-second preStop hook |
+| Swagger | Enabled with generated Basic credentials | Explicitly disabled unless overridden | Disabled |
+
+The VM profile hardcodes several settings, including `RANKING_MODE=legacy` and a seven-day TTL; adding a different value to `.env.vm` does not override a hardcoded Compose value. Root Compose forwards a broader set of settings. Read the actual manifests when adapting profiles.
+
+## Recommended production baseline
+
+Choose a database, verified transport, ingress policy, and secret source first. Then provision bearer tokens, a shared cursor key, `CURSOR_REQUIRE_SIGNATURE=true`, a deliberate privacy mode, and Swagger disabled or authenticated/view-only. Disable per-pod startup migrations in orchestrated releases. Retain fixed/adaptive controls at measured values and budget pools across maximum replicas, surge, canary, terminating pods, and external clients.
+
+This baseline is completed by [deployment](DEPLOYMENT.md), [security](SECURITY.md), and [environment acceptance](PRODUCTION_READINESS.md); it is not a substitute for workload and recovery evidence.

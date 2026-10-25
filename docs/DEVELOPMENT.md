@@ -1,90 +1,131 @@
-# Development and maintenance
+# Development and contribution guide
 
-[Documentation index](../README.md)
+[Documentation index](README.md) · [Architecture](ARCHITECTURE.md) · [Testing](TESTING.md)
 
-## Project structure
+## Prerequisites
 
-| Path | Contents |
-| --- | --- |
-| `src/` | Application TypeScript source |
-| `migrations/` | Database schema definitions |
-| `tests/` | Node test runner tests |
-| `scripts/` | Migration wrapper, OpenAPI export, benchmark, packaging |
-| `docs/` | Guides and generated OpenAPI |
-| `dist/` | Build output; excluded from the source ZIP |
-| `package-lock.json` | Locked versions for reproducible installation |
-| `SHA256SUMS` | Packaged file hashes, excluding the checksum file itself |
+- Node.js **24.x**, matching `.nvmrc`, package engines, Docker, and CI.
+- npm and the committed `package-lock.json` for reproducible installation.
+- PostgreSQL with PostGIS. CI uses PostgreSQL 16 / PostGIS 3.4; validate other versions before relying on them.
+- Bash and Python 3 for the repository's operational/source-packaging tests.
+- Docker and the Compose plugin for container development, VM evaluation, and monitoring checks via Docker.
 
-Compilation uses strict TypeScript, CommonJS output, and ES2020 target. `rootDir` is `src`; `outDir` is `dist`.
-
-## npm commands
-
-| Command | Behavior |
-| --- | --- |
-| `npm run dev` | Development; tsx watch mode, without type checking |
-| `npm run build` | Generate `dist` with TypeScript |
-| `npm start` | Execute `dist/server.js`; configuration defaults to production |
-| `npm run typecheck` | Type checking without emitted files |
-| `npm test` | Build and run all tests |
-| `npm run test:integration` | Build and run the database suite |
-| `npm run migrate:up` | Apply pending migrations |
-| `npm run migrate:down` | Roll back migrations; the current migration deletes data |
-| `npm run migrate:create -- name` | Create a migration file through the CLI |
-| `npm run openapi:export` | Build and regenerate `docs/openapi.json` |
-| `npm run openapi:check` | Build and check contract freshness |
-| `npm run benchmark:nearby` | Build and run the SQL comparison |
-
-Development execution transforms TypeScript without type checking and does not replace `npm run typecheck`. The application and migration wrapper read only `.env` from the project root; `NODE_ENV` changes mode, not filenames. Verify `DATABASE_URL` before migrations. For optional host execution, use a separately reachable development database as described in [Deployment](DEPLOYMENT.md).
-
-## Dependency ownership
-
-`server.ts` is the executable composition root. Other modules export factories or types and start no runtime resources on import. `createApp` accepts validated configuration, a location repository, a database health dependency and a logger. Repository and database instances own their dependencies; tests provide independent fakes rather than modifying module singletons. `createService` owns startup/draining, while `runService` installs the executable's signal handling.
-
-## Relative-time formatting
-
-`timeAgo(date, referenceTime, language)` uses cached native `Intl.RelativeTimeFormat` for `en` and `fa`; omitted language defaults to English. Short units are elapsed units; months and years are completed UTC Gregorian calendar anniversaries with end-of-month clamping in both languages. It rejects invalid dates and retains the API's zero-age treatment of future timestamps. Standard Node.js 24 builds with English and Persian ICU data are required; unsupported runtimes fail explicitly instead of silently returning the wrong language. The app's optional internal clock dependency lets tests capture request-start time without replacing global `Date`. Use `updatedAt`, not the display string, for calculations. The unit policy is documented in [API](API.md#relative-display-age).
-
-`request-context.middleware.ts` negotiates the standard `Accept-Language` header and captures one server timestamp before body parsing. `src/i18n/` contains supported languages and typed API messages. Schemas use per-language custom messages and per-parse validator error maps. Do not call global `z.config()` per request; it would let concurrent requests affect one another. Preserve default English text, error paths and machine-readable fields when maintaining translations. See [Response language](API.md#response-language).
-
-Technical reference: [ECMA-402 RelativeTimeFormat](https://tc39.es/ecma402/#relativetimeformat-objects).
-
-## Change workflow
-
-Locate the relevant schema, controller, model, and tests before changing behavior. Contract changes must also be reflected in Swagger definitions and [API reference](API.md). For documentation-only edits, preserve application logic, dependencies, and migrations.
+## Option A: local Compose
 
 ```bash
-npm run typecheck
-npm test
-npm run openapi:check
+git clone https://github.com/pouriya-sedaghat/nearby-location.git
+cd nearby-location
+NODE_ENV=development docker compose --project-directory . -f deploy/compose.development.yaml up --build -d --wait
+curl --fail http://localhost:8080/health/ready
 ```
 
-For model or SQL changes, run the real PostGIS suite against a temporary database. For performance changes, compare before/after results with identical inputs and environment; see [Performance](PERFORMANCE.md).
+The API is at `http://localhost:8080`; Swagger is at `/api-docs/`. The database is internal to the Compose network and is not published to the host. The development Compose profile replaces `DATABASE_URL` with its internal database URL. Source is copied into the development image rather than bind-mounted, so host changes require rebuilding/recreating the container.
 
-## OpenAPI maintenance
+Use `docker compose --project-directory . -f deploy/compose.development.yaml logs --tail 100 nearby` for diagnostics and `docker compose --project-directory . -f deploy/compose.development.yaml down` to stop while retaining data. A pre-existing PostgreSQL volume preserves its original initialization and credentials.
 
-`src/config/openapi.ts` is the single explicit contract definition for paths, operation IDs, schemas and examples. It receives only server URL and radius settings, reads the version from `package.json`, and does not load runtime credentials or scan route files. `src/config/swagger.ts` supplies validated runtime settings and creates instance-specific UI middleware. Compiled distributions do not need route sources or annotation comments. Keep the actual router declarations and contract aligned; tests exercise all four routes and validate the generated contract.
+## Option B: run Node on the host
 
-Export passes canonical values for `BASE_URL` and radius directly to the builder and does not read `.env` or unrelated process settings. Use the running process's documentation endpoint to inspect runtime values. Do not edit the generated file independently of its code definitions.
-
-`swagger.test.js` validates OpenAPI structure and examples, checks production documentation authentication/settings, and executes the documented requests through actual controllers with stubbed database/model access. Optional DOM tests exercise the bundled UI itself; see [Testing](TESTING.md). The [Swagger guide](SWAGGER.md) documents the public console workflow.
-
-## Dependency maintenance
-
-Installation commands disable dependency lifecycle hooks with `--ignore-scripts`. The reviewed runtime and development graph works without these hooks, including the TypeScript/tsx tooling. Keep this flag in Docker and documented installation paths to avoid unneeded install-time code and telemetry. Explicit project build/test/start commands still execute normally.
-
-Use `npm ci --ignore-scripts` for installation. Version changes must be recorded in the lockfile and verified with tests. The package contains a scoped `node-pg-migrate -> glob@11.1.0` override to address the CLI advisory affecting 11.0.3. Recheck versions and migration behavior before removing it.
-
-The dependency graph uses Zod 4.6.7 and node-cron 4.6.0 with regression coverage for validation and schedule disposal. Development uses tsx instead of the previous ts-node-dev toolchain. Node types target version 24, and Express types target the actual Express 4 runtime. Contract validation dependencies are explicitly declared for development; swagger-jsdoc and its duplicate annotation parsing are removed. The migration CLI is a runtime dependency so production-only installs can migrate. Preserve compatible fixes in the lockfile and verify changes with the suite and both audit scopes; do not use `npm audit fix --force` without reviewing its effect.
-
-## Source ZIP packaging
-
-After build, tests, and export:
+Use a development PostGIS database reachable from the host. A disposable local database can be started with:
 
 ```bash
-python3 scripts/package-source.py \
-  --output ../nearby-location-postgis-v1.0.0.zip
+docker run -d --name nearby-dev-db \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=nearby_dev \
+  -p 127.0.0.1:5432:5432 postgis/postgis:16-3.4
+docker exec nearby-dev-db pg_isready -U postgres -d nearby_dev
 ```
 
-The script regenerates `SHA256SUMS` and places source under `nearby-location/`. It includes an explicit set of root configuration files, TypeScript under `src/`, direct Markdown/JSON files under `docs/`, JavaScript migrations, supported scripts/tests and their known fixture formats. Unrelated root files/directories, database dumps, private key formats, build output, installed dependencies, hidden subdirectories and symbolic links are excluded. Only the root `.env.example` is included; real environment files are excluded.
+Wait for the database to become ready, then install and configure:
 
-When intentionally adding another distributable format or directory, update the explicit packaging rules and its regression test. Source files can still contain sensitive text, so review release content before delivery and inspect the ZIP. The entrypoint's executable mode is preserved in the archive.
+```bash
+npm ci --ignore-scripts
+cp .env.example .env
+```
+
+Edit `.env` to use `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/nearby_dev`. Then:
+
+```bash
+NODE_ENV=development npm run migrate:up
+npm run dev
+```
+
+`npm run dev` explicitly uses `NODE_ENV=development` and watches TypeScript through tsx. Direct Node runs never invoke startup migrations. To run compiled code:
+
+```bash
+npm run build
+NODE_ENV=development npm start
+```
+
+The server loads environment files from its working directory. Exported variables win over files. See [configuration precedence](CONFIGURATION.md#loading-and-precedence).
+
+## Source organization
+
+| Path | Change here when… |
+|---|---|
+| `src/routes/` | Adding or mounting endpoints |
+| `src/schemas/` | Changing input validation |
+| `src/controllers/` | Changing orchestration, response fields, or error handling |
+| `src/models/location.model.ts` | Changing SQL, candidate selection, counts, or data mapping |
+| `src/config/env.ts` | Adding settings or cross-setting validation |
+| `src/config/openapi.definition.ts` and `openapi.ts` | Changing the explicit contract and runtime projection |
+| `src/config/swagger.ts` | Changing authenticated UI behavior |
+| `src/utils/cursor.ts` | Changing cursor encoding, compatibility, query binding, or age checks |
+| `src/utils/admission-core.ts` | Changing pure admission/circuit/adaptive/rate algorithms |
+| `src/utils/admission.ts` | Connecting those algorithms to pool, logging, and metrics |
+| `src/jobs/cleanup.job.ts` | Changing retention scheduling or batch orchestration |
+| `migrations/` | Adding versioned database changes |
+| `scripts/` and `scripts/lib/` | Changing operational commands and reusable tooling logic |
+| `tests/` | Adding behavioral regressions and real database coverage |
+| `deploy/` | Changing container/cluster procedures and platform defaults |
+
+The [architecture source map](ARCHITECTURE.md#source-responsibilities) explains interactions.
+
+## Make a change
+
+1. Branch from the current `main` and identify the behavior to change.
+2. Update the relevant code and add a regression test for material behavior changes.
+3. Keep HTTP contract, validation, SQL, and generated OpenAPI consistent.
+4. Run relevant checks from [testing](TESTING.md); use an isolated database for integration coverage.
+5. Update affected English guides and changelog for application behavior changes.
+6. Open a pull request describing the trigger, resulting behavior, validation, and deployment impact.
+
+Express 4 needs rejected asynchronous handlers forwarded explicitly. Preserve the middleware ordering and `finally`-based release of admitted work. Keep SQL parameterized, preserve longitude/latitude order, and avoid logging coordinates, IDs, tokens, cursors, or raw production database messages.
+
+## Database migrations
+
+```bash
+npm run migrate:create -- add_example_field
+npm run migrations:check
+```
+
+Review the generated file and implement `exports.up`/`exports.down`. Test it against a disposable database and rehearse an upgrade from the existing schema. Do not modify already-applied migrations for a normal release.
+
+Use expand/contract changes so old and new images can coexist. The migration policy tool analyzes `exports.up` for common destructive/breaking operations; it is a guardrail rather than a proof of compatibility. `migrate:down` can delete data: the initial down migration drops `locations` and PostGIS. Application rollback must not assume automatic database rollback.
+
+## Maintain the documentation
+
+| Source change | Documentation to update |
+|---|---|
+| Route, request, response, status, or pagination | [API](API.md), explicit contract definition/shared schemas, generated `openapi.json` |
+| Environment variable/default/constraint | [Configuration](CONFIGURATION.md), affected deployment profiles and procedures |
+| SQL, ranking, cursor, cleanup, or lifecycle | [Architecture](ARCHITECTURE.md), API consistency notes, affected runbooks |
+| Deployment or release script | [Deployment](DEPLOYMENT.md), [VM guide](VM_TESTING.md), [release guide](../deploy/kubernetes/release/README.md) |
+| Operational command or evidence | [Testing](TESTING.md), [Operations](OPERATIONS.md), [readiness](PRODUCTION_READINESS.md) |
+| Product capability | [Overview](OVERVIEW.md), [presentation](PRESENTATION.md), short root README summary |
+
+Generate OpenAPI without local production secrets or custom radius settings:
+
+```bash
+NODE_ENV=test npm run docs:api
+git diff -- docs/openapi.json
+```
+
+Use a clean checkout/environment for the committed contract. CI uses `NODE_ENV=test` and compares the generated file. Keep each guide focused, add source links for technical behavior, and maintain the index and Mermaid diagram catalogue. Check relative links, heading anchors, shell examples, and diagram syntax before review. Dated benchmark numbers belong in release evidence tied to a commit/image and dataset rather than in generic setup instructions.
+
+## Package a source release
+
+```bash
+npm run release:source
+```
+
+Python 3 produces `nearby-location-postgis-v2.14.0.zip` with deterministic timestamps, LF text, and executable shell metadata. The packager excludes local environment files except `.env.example`, build/dependency directories, VM reports, ZIP files, and the known real Kubernetes Secret path. An explicit path allowlist is used in both Git checkouts and extracted archives; unrelated exports and supported-path symbolic links are rejected or excluded. A SHA256SUMS manifest covers all distributed source files except itself. The application production image does not contain Python or development tooling.

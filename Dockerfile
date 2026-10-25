@@ -27,10 +27,12 @@ COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_m
 COPY --chown=node:node package*.json ./
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node migrations ./migrations
-COPY --chown=node:node scripts/run-migration.js ./scripts/run-migration.js
+COPY --chown=node:node scripts/*.js ./scripts/
+COPY --chown=node:node scripts/lib ./scripts/lib
 COPY --chown=node:node docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 USER node
+STOPSIGNAL SIGTERM
 EXPOSE 8080
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "dist/server.js"]

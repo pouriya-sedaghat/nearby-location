@@ -33,6 +33,12 @@ test("source packaging excludes local exports and includes only release paths", 
       excluded.push("src/linked.ts");
     }
     const archive = path.join(temp, "source.zip");
+    if (process.platform !== "win32") {
+      const refused = spawnSync("python3", [path.join(temp, "scripts/package-source.py"), "--output", archive], { encoding: "utf8" });
+      assert.notEqual(refused.status, 0, "A supported source symlink must fail closed");
+      assert.match(refused.stderr, /symbolic links/);
+      fs.unlinkSync(path.join(temp, "src/linked.ts"));
+    }
     const packaged = spawnSync("python3", [path.join(temp, "scripts/package-source.py"), "--output", archive], {
       encoding: "utf8",
     });

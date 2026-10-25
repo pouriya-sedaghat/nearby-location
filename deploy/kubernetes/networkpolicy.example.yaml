@@ -1,0 +1,46 @@
+# Optional ingress isolation for the Nearby API pods. This file is intentionally
+# excluded from kustomization.yaml because namespace labels and ingress/monitoring
+# topology are cluster-specific.
+#
+# Before applying, label the namespaces that are allowed to reach Nearby, e.g.:
+#   kubectl label namespace ingress-nginx nearby-location/ingress=true
+#   kubectl label namespace monitoring nearby-location/monitoring=true
+#   kubectl label namespace my-backend nearby-location/location-client=true
+#   kubectl label namespace privacy-jobs nearby-location/privacy-client=true
+#
+# Pods in the Nearby namespace may also opt in with:
+#   nearby-location/access=location-client
+# The release canary/smoke Jobs already carry that label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nearby-location-ingress
+  labels:
+    app.kubernetes.io/name: nearby-location
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: nearby-location
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              nearby-location/access: location-client
+        - namespaceSelector:
+            matchLabels:
+              nearby-location/location-client: "true"
+        - namespaceSelector:
+            matchLabels:
+              nearby-location/privacy-client: "true"
+        - namespaceSelector:
+            matchLabels:
+              nearby-location/ingress: "true"
+        - namespaceSelector:
+            matchLabels:
+              nearby-location/monitoring: "true"
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -43,8 +43,8 @@ let server, dom;
     });
     const doc = dom.window.document;
     await until(() => doc.querySelector("#operations-Location-upsertLocation"), "Swagger did not render");
-    assert.equal(doc.title, "Nearby Location API 1.0.0");
-    assert.equal(doc.querySelectorAll(".opblock").length, 4);
+    assert.equal(doc.title, "Nearby Location API " + require("../../package.json").version);
+    assert.equal(doc.querySelectorAll(".opblock").length, 5);
     async function expand(id) {
       const block = doc.getElementById(id);
       block.querySelector(".opblock-summary-control").click();

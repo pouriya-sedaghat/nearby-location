@@ -1,6 +1,6 @@
 {
   "name": "nearby-location",
-  "version": "1.0.0",
+  "version": "2.14.0",
   "description": "Microservice for storing user location and finding nearby users (PostgreSQL + PostGIS).",
   "main": "dist/server.js",
   "scripts": {
@@ -13,9 +13,23 @@
     "typecheck": "tsc --noEmit",
     "test:integration": "npm run build && node --test tests/location.integration.test.js",
     "test": "npm run build && node --test tests/*.test.js",
-    "openapi:export": "npm run build && node scripts/export-openapi.js",
+    "test:unit": "npm run build && node --test tests/*.test.js",
+    "analyze:nearby": "node scripts/explain-nearby.js",
+    "benchmark:http": "node scripts/benchmark-http.js",
+    "compare:ranking": "node scripts/compare-ranking.js",
+    "benchmark:seed": "node scripts/seed-benchmark.js",
+    "inspect:db": "node scripts/inspect-db.js",
+    "benchmark:matrix": "node scripts/benchmark-matrix.js",
+    "capacity:check": "node scripts/check-capacity.js",
+    "canary:compare": "node scripts/canary-compare.js",
+    "migrations:check": "node scripts/check-migrations.js",
+    "privacy:audit": "node scripts/audit-privacy-retention.js",
+    "docs:api": "npm run build && node scripts/export-openapi.js",
+    "check:scripts": "node scripts/check-scripts.js",
+    "release:source": "python3 scripts/package-source.py",
+    "check:monitoring": "node scripts/check-monitoring.js",
     "openapi:check": "npm run build && node scripts/export-openapi.js --check",
-    "benchmark:nearby": "npm run build && node scripts/benchmark-nearby.js"
+    "openapi:export": "npm run build && node scripts/export-openapi.js"
   },
   "keywords": [],
   "author": "",
@@ -25,28 +39,28 @@
     "dotenv": "^17.4.2",
     "express": "^4.22.1",
     "node-cron": "^4.6.0",
+    "node-pg-migrate": "^9.0.0",
     "pg": "^8.13.1",
     "swagger-ui-express": "^5.0.1",
-    "zod": "^4.6.7",
-    "node-pg-migrate": "^7.9.1"
-  },
-  "overrides": {
-    "node-pg-migrate": {
-      "glob": "11.1.0"
-    }
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@types/express": "^4.17.25",
     "@types/node": "^24.19.2",
     "@types/pg": "^8.11.10",
     "@types/swagger-ui-express": "^4.1.8",
-    "cross-env": "^10.1.0",
-    "typescript": "^5.9.3",
-    "@apidevtools/swagger-parser": "^12.1.0",
     "ajv": "^8.20.0",
-    "tsx": "^4.23.15"
+    "cross-env": "^10.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "yaml": "^2.8.4"
   },
   "engines": {
     "node": ">=24 <25"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pouriya-sedaghat/nearby-location.git"
   }
 }

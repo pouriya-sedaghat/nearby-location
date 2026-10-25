@@ -1,0 +1,149 @@
+# Optional Prometheus Operator rules. This example assumes a 99.9% availability
+# SLO for /location/*, so the error budget is 0.1% (0.001). Adjust the SLO,
+# thresholds, namespace/labels and routing before applying. This file remains
+# intentionally excluded from kustomization.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nearby-location
+  labels:
+    app.kubernetes.io/name: nearby-location
+spec:
+  groups:
+    - name: nearby-location-recording
+      interval: 30s
+      rules:
+        - record: nearby:slo_error_ratio:5m
+          expr: |
+            (sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)",status=~"5.."}[5m])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[5m])), 0.000001)
+        - record: nearby:slo_error_ratio:30m
+          expr: |
+            (sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)",status=~"5.."}[30m])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[30m])), 0.000001)
+        - record: nearby:slo_error_ratio:1h
+          expr: |
+            (sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)",status=~"5.."}[1h])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[1h])), 0.000001)
+        - record: nearby:slo_error_ratio:2h
+          expr: |
+            (sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)",status=~"5.."}[2h])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[2h])), 0.000001)
+        - record: nearby:slo_error_ratio:6h
+          expr: |
+            (sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)",status=~"5.."}[6h])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[6h])), 0.000001)
+        - record: nearby:slo_error_ratio:1d
+          expr: |
+            (sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)",status=~"5.."}[1d])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[1d])), 0.000001)
+        - record: nearby:slo_error_ratio:3d
+          expr: |
+            (sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)",status=~"5.."}[3d])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[3d])), 0.000001)
+        - record: nearby:slo_burn_rate:5m
+          expr: nearby:slo_error_ratio:5m / 0.001
+        - record: nearby:slo_burn_rate:30m
+          expr: nearby:slo_error_ratio:30m / 0.001
+        - record: nearby:slo_burn_rate:1h
+          expr: nearby:slo_error_ratio:1h / 0.001
+        - record: nearby:slo_burn_rate:2h
+          expr: nearby:slo_error_ratio:2h / 0.001
+        - record: nearby:slo_burn_rate:6h
+          expr: nearby:slo_error_ratio:6h / 0.001
+        - record: nearby:slo_burn_rate:1d
+          expr: nearby:slo_error_ratio:1d / 0.001
+        - record: nearby:slo_burn_rate:3d
+          expr: nearby:slo_error_ratio:3d / 0.001
+        - record: nearby:slo_availability_ratio:5m
+          expr: 1 - nearby:slo_error_ratio:5m
+        - record: nearby:slo_nearby_p95_seconds:5m
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(nearby_http_request_duration_seconds_bucket{route="/location/nearby"}[5m])
+              )
+            )
+        - record: nearby:load_shed_ratio:5m
+          expr: |
+            (sum(rate(nearby_admission_rejections_total[5m])) or vector(0))
+            /
+            clamp_min(sum(rate(nearby_http_requests_total{route=~"/location/(nearby|upsert)"}[5m])), 0.000001)
+        - record: nearby:adaptive_limit_utilization:max
+          expr: max by (workload) (nearby_admission_utilization_ratio)
+    - name: nearby-location-slo-burn-alerts
+      rules:
+        - alert: NearbyErrorBudgetFastBurn
+          expr: nearby:slo_burn_rate:5m > 14.4 and nearby:slo_burn_rate:1h > 14.4
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Nearby is rapidly consuming its 99.9% availability error budget
+            description: Both the 5-minute and 1-hour burn rates are above 14.4x. Stop or roll back a risky rollout and investigate 5xx/load-shed causes.
+        - alert: NearbyErrorBudgetMediumBurn
+          expr: nearby:slo_burn_rate:30m > 6 and nearby:slo_burn_rate:6h > 6
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: Nearby is consuming its availability error budget too quickly
+            description: Both the 30-minute and 6-hour burn rates are above 6x.
+        - alert: NearbyErrorBudgetSlowBurn
+          expr: nearby:slo_burn_rate:2h > 3 and nearby:slo_burn_rate:1d > 3
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: Nearby has a sustained availability error-budget burn
+            description: Both the 2-hour and 1-day burn rates are above 3x.
+        - alert: NearbyErrorBudgetLongBurn
+          expr: nearby:slo_burn_rate:6h > 1 and nearby:slo_burn_rate:3d > 1
+          for: 3h
+          labels:
+            severity: warning
+          annotations:
+            summary: Nearby has a long-running availability error-budget burn
+            description: Both the 6-hour and 3-day burn rates remain above the sustainable 1x rate.
+    - name: nearby-location-operational-alerts
+      rules:
+        - alert: NearbyDatabaseCircuitOpen
+          expr: max_over_time(nearby_admission_circuit_state[2m]) >= 2
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Nearby database circuit is open
+            description: Location traffic is being shed because PostgreSQL availability failures opened the circuit.
+        - alert: NearbySustainedLoadShedding
+          expr: nearby:load_shed_ratio:5m > 0.02
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Nearby is shedding more than 2% of location requests
+            description: Check PostgreSQL latency, pool waiters, adaptive limits, and replica capacity before scaling aggressively.
+        - alert: NearbyNearbyP95High
+          expr: nearby:slo_nearby_p95_seconds:5m > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Nearby search p95 is above 500ms
+            description: Compare HTTP p95 with DB operation latency and PostGIS plan metrics before changing concurrency.
+        - alert: NearbyPostgresPoolQueueing
+          expr: max_over_time(nearby_pg_pool_waiting_requests[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Nearby PostgreSQL pool has sustained waiters
+            description: Pool queueing is an early overload signal; verify DB capacity before increasing PG_POOL_MAX.

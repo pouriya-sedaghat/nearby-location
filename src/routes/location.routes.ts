@@ -1,9 +1,11 @@
-import { Router } from "express";
-import { createLocationController } from "../controllers/location.controller";
+import express from "express";
+import { upsertLocation, findNearby } from "../controllers/location.controller";
+import { admissionMiddleware } from "../middleware/admission.middleware";
 
-export const createLocationRoutes = (controller: ReturnType<typeof createLocationController>) => {
-  const router = Router();
-  router.post("/upsert", controller.upsertLocation);
-  router.post("/nearby", controller.findNearby);
-  return router;
-};
+const router = express.Router();
+
+router.post("/upsert", admissionMiddleware("upsert", upsertLocation));
+
+router.post("/nearby", admissionMiddleware("nearby", findNearby));
+
+export default router;

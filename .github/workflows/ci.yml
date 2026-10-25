@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: nearby_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nearby_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/nearby_test
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Dependency vulnerability audit
+        run: npm audit --audit-level=moderate
+      - name: Migration compatibility policy
+        run: npm run migrations:check
+      - run: npm run typecheck
+      - name: Operational script syntax
+        run: npm run check:scripts
+      - name: Prometheus rule syntax and behavior
+        run: npm run check:monitoring -- --docker
+      - name: VM helper syntax
+        run: |
+          bash -n deploy/vm/vm.sh
+          python3 -c 'from pathlib import Path; compile(Path("deploy/vm/redact.py").read_text(), "redact.py", "exec")'
+          python3 -c 'from pathlib import Path; compile(Path("deploy/vm/resources.py").read_text(), "resources.py", "exec")'
+      - name: Verify generated OpenAPI specification
+        run: npm run docs:api && git diff --exit-code -- docs/openapi.json
+      - run: npm run test:unit
+      - name: Build portable source archive
+        run: npm run release:source
+      - run: npm run test:integration
+        env:
+          INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/nearby_test
+      - name: Build production image
+        run: docker build --target production -t nearby-location:ci .
+      - name: VM profile smoke test
+        env:
+          VM_IMAGE: nearby-location:ci
+        run: |
+          ./deploy/vm/vm.sh init
+          ./deploy/vm/vm.sh up
+          ./deploy/vm/vm.sh smoke
+          ./deploy/vm/vm.sh seed
+          ./deploy/vm/vm.sh explain
+          ./deploy/vm/vm.sh explain cursor_next
+          ./deploy/vm/vm.sh resources 1
+          test "$(docker exec nearby-evaluation-postgres-1 psql -U postgres -d nearby_vm -Atc "SELECT COUNT(*) = 10000 AND min(updated_at) > now() - interval '2 days' FROM locations")" = t
+          ./deploy/vm/vm.sh restart
+          ./deploy/vm/vm.sh smoke
+          test "$(docker exec nearby-evaluation-postgres-1 psql -U postgres -d nearby_vm -Atc 'SELECT COUNT(*) = 10000 FROM locations')" = t
+      - name: VM diagnostics and cleanup
+        if: always()
+        env:
+          VM_IMAGE: nearby-location:ci
+        run: |
+          if [ -f .env.vm ]; then
+            ./deploy/vm/vm.sh collect
+            ./deploy/vm/vm.sh down
+          fi

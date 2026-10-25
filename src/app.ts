@@ -1,87 +1,111 @@
 import express, { Request, Response, NextFunction } from "express";
-import { TextDecoder } from "util";
-import { createHealthRoutes } from "./routes/health.routes";
-import { createLocationRoutes } from "./routes/location.routes";
+import { TextDecoder } from "node:util";
+import { requestContextMiddleware } from "./middleware/request-context.middleware";
+import { apiMessage } from "./i18n/response";
+import healthRoutes from "./routes/health.routes";
+import locationRoutes from "./routes/location.routes";
+import privacyRoutes from "./routes/privacy.routes";
+import metricsRoutes from "./routes/metrics.routes";
 import { setupSwagger } from "./config/swagger";
+import { observabilityMiddleware } from "./middleware/observability.middleware";
+import { logger } from "./utils/logger";
+import { config } from "./config/env";
+import { lifecycleRequestMiddleware } from "./middleware/lifecycle.middleware";
+import { authorizationMiddleware } from "./middleware/auth.middleware";
 
-import type { AppConfig } from "./config/env";
-import type { Database } from "./utils/db";
-import type { LocationRepository } from "./models/location.model";
-import type { Logger } from "./utils/logger";
-import { createHealthController } from "./controllers/health.controller";
-import { createLocationController } from "./controllers/location.controller";
-import { requestContextMiddleware, responseLanguage } from "./middleware/request-context.middleware";
-import { message } from "./i18n/messages";
-import type { MessageKey } from "./i18n/messages";
+export const createApp = ({ clock = Date.now }: { clock?: () => number } = {}) => {
+const app = express();
+app.set("env", config.NODE_ENV);
+app.use(requestContextMiddleware(clock));
+app.disable("x-powered-by");
+if (config.HTTP_TRUST_PROXY) app.set("trust proxy", true);
 
-export interface AppDependencies {
-  config: AppConfig;
-  database: Pick<Database, "ping">;
-  locations: Pick<LocationRepository, "upsertLocation" | "findNearby">;
-  logger?: Logger;
-  clock?: () => number;
+// Install request identity/metrics before body parsing so malformed JSON is
+// still traceable and measured.
+app.use(observabilityMiddleware);
+app.use(lifecycleRequestMiddleware);
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  // Location responses should not be cached by browsers or shared proxies.
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
+// Keep probes independent from application authentication. Protect sensitive
+// surfaces before parsing request bodies so unauthorized callers do not consume
+// JSON parsing work.
+app.use("/health", healthRoutes);
+app.use("/metrics", authorizationMiddleware("metrics"), metricsRoutes);
+app.use("/location", authorizationMiddleware("location"));
+if (config.PRIVACY_API_ENABLED) {
+  app.use("/privacy", authorizationMiddleware("privacy"));
+}
+app.use(express.json({ limit: "32kb", verify: (_req, _res, body, encoding) => {
+  try { new TextDecoder(encoding, { fatal: true }).decode(body); }
+  catch (error) { throw Object.assign(new Error("Invalid JSON body encoding"), { status: error instanceof RangeError ? 415 : 400, type: "entity.parse.failed" }); }
+} }));
+app.use("/location", locationRoutes);
+if (config.PRIVACY_API_ENABLED) {
+  app.use("/privacy", privacyRoutes);
 }
 
-/** Builds HTTP handlers only; no environment loading, timers or sockets. */
-export const createApp = ({ config, database, locations, logger = console, clock = Date.now }: AppDependencies) => {
-  const app = express();
-  app.set("env", config.NODE_ENV);
-  app.disable("x-powered-by");
-  app.use(requestContextMiddleware(clock));
-  app.use(express.json({
-    limit: "32kb",
-    verify: (_req, _res, body, encoding) => {
-      // A permissive UTF-8 decoder can replace distinct invalid byte sequences
-      // with the same character before identifier validation sees the input.
-      if (encoding.toLowerCase() !== "utf-8") return;
-      try { new TextDecoder("utf-8", { fatal: true }).decode(body); }
-      catch { throw Object.assign(new Error("Invalid JSON body encoding"), { status: 400 }); }
-    },
-  }));
+setupSwagger(app);
 
-  app.use("/health", createHealthRoutes(createHealthController(database, logger)));
-  app.use("/location", createLocationRoutes(createLocationController(locations, config, logger, clock)));
+app.use((_req: Request, res: Response) => {
+  return res.status(404).json({
+    success: false,
+    message: apiMessage(res, "Not found"),
+  });
+});
 
-  setupSwagger(app, config);
+type ExpressBodyError = Error & {
+  status?: number;
+  statusCode?: number;
+  type?: string;
+};
 
-  app.use((_req: Request, res: Response) => {
-    return res.status(404).json({
+const errorHandler = (
+  err: ExpressBodyError,
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (res.headersSent) return next(err);
+  const status = err.status ?? err.statusCode;
+
+  if (status === 400) {
+    return res.status(400).json({
       success: false,
-      message: message(responseLanguage(res), "notFound"),
+      message: apiMessage(res, err.type === "entity.parse.failed" ? "Invalid JSON body" : "Invalid request body"),
     });
+  }
+
+  if (status === 413) {
+    return res.status(413).json({
+      success: false,
+      message: apiMessage(res, "Request body too large"),
+    });
+  }
+
+  if (status === 415) {
+    return res.status(415).json({
+      success: false,
+      message: apiMessage(res, "Unsupported request encoding or charset"),
+    });
+  }
+
+  logger.error("unhandled_http_error", {
+    requestId: res.locals.requestId,
+    error: err,
   });
 
-  const errorHandler = (
-    err: unknown,
-    _req: Request,
-    res: Response,
-    next: NextFunction,
-  ) => {
-    if (res.headersSent) return next(err);
-
-    // Preserve JSON parser client errors without returning the submitted body.
-    const clientMessages: Record<number, MessageKey> = {
-      400: "invalidJson",
-      413: "bodyTooLarge",
-      415: "unsupportedEncoding",
-    };
-    const status = typeof err === "object" && err !== null && "status" in err
-      ? (err as { status?: unknown }).status : undefined;
-    if (typeof status === "number" && clientMessages[status]) {
-      return res.status(status).json({
-        success: false,
-        message: message(responseLanguage(res), clientMessages[status]),
-      });
-    }
-
-    logger.error(err instanceof Error ? err.stack ?? err.message : err);
-
-    return res.status(500).json({
-      success: false,
-      message: message(responseLanguage(res), "unexpectedError"),
-    });
-  };
-  app.use(errorHandler);
-
-  return app;
+  return res.status(500).json({
+    success: false,
+    message: apiMessage(res, "Internal Server Error"),
+  });
 };
+app.use(errorHandler);
+
+return app;
+};
+
+export default createApp();

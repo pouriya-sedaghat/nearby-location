@@ -1,151 +1,141 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { createTestApp } = require("./fixtures/app.factory");
-const { app, locations: Location, database: db, config } = createTestApp({
-  NODE_ENV: "production", SWAGGER_ENABLED: "true", SWAGGER_AUTH_USERNAME: "swagger_test",
-  SWAGGER_AUTH_PASSWORD: "swagger-test-only-password-012345678901",
-  DEFAULT_MAX_DISTANCE_METERS: "1234", MAX_MAX_DISTANCE_METERS: "5678",
-});
-const { createOpenApiSpec } = require("../dist/config/openapi");
-const { upsertReqSchema, createNearbyRequestSchema } = require("../dist/schemas/request.schema");
-const findNearbyReqSchema = createNearbyRequestSchema(config);
-const Ajv = require("ajv");
-const spec = createOpenApiSpec(config);
-const auth = { Authorization: "Basic " + Buffer.from(config.SWAGGER_AUTH_USERNAME + ":" + config.SWAGGER_AUTH_PASSWORD).toString("base64") };
-const resolve = value => value?.$ref
-  ? resolve(value.$ref.slice(2).split("/").reduce((parent, key) => parent[key], spec))
-  : value;
-function normalize(value) {
-  if (Array.isArray(value)) return value.map(normalize);
-  if (!value || typeof value !== "object") return value;
-  const copy = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalize(item)]));
-  if (copy.exclusiveMinimum === true) { copy.exclusiveMinimum = copy.minimum; delete copy.minimum; }
-  else if (copy.exclusiveMinimum === false) delete copy.exclusiveMinimum;
-  return copy;
-}
-const ajv = new Ajv({ strict: false, validateFormats: false });
-ajv.addSchema({ $id: "contract", components: normalize(spec.components) });
-function validate(schema, value) {
-  const compiled = ajv.compile(schema.$ref
-    ? { $ref: "contract" + schema.$ref }
-    : normalize(schema));
-  assert.ok(compiled(value), JSON.stringify(compiled.errors));
-}
-let server, url, rows, calls, unavailable;
-const original = { upsert: Location.upsertLocation, nearby: Location.findNearby, ping: db.ping };
-test.before(async () => {
-  Location.upsertLocation = async (userId, lat, lng) => {
-    calls.push("upsert");
-    rows.set(userId, { userId, coordinate: { lat, lng }, distance: 0, updatedAt: new Date() });
-  };
-  Location.findNearby = async (_lat, _lng, _radius, skip, limit, exclude) => {
-    calls.push("nearby");
-    const data = [...rows.values()].filter(row => row.userId !== exclude);
-    return { totalCount: data.length, data: data.slice(skip, skip + limit) };
-  };
-  db.ping = async () => { calls.push("ready"); if (unavailable) throw new Error("test database unavailable"); };
-  server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
-  url = "http://127.0.0.1:" + server.address().port;
-});
-test.beforeEach(() => { rows = new Map(); calls = []; unavailable = false; });
-test.after(async () => {
-  Location.upsertLocation = original.upsert;
-  Location.findNearby = original.nearby;
-  db.ping = original.ping;
-  server.closeAllConnections();
-  await new Promise(resolve => server.close(resolve));
-});
-test("every operation has a unique ID, named examples, and valid reusable responses", async () => {
-  await require("@apidevtools/swagger-parser").validate(JSON.parse(JSON.stringify(spec)));
-  const operations = Object.values(spec.paths).flatMap(item => Object.values(item));
-  assert.deepEqual(operations.map(op => op.operationId).sort(),
-    ["findNearbyUsers", "getLiveness", "getReadiness", "upsertLocation"]);
-  for (const [route, item] of Object.entries(spec.paths)) {
-    for (const operation of Object.values(item)) {
-      assert.ok(operation.summary && operation.description);
-      const language = operation.parameters.map(resolve).find(parameter => parameter.name === "Accept-Language");
-      assert.equal(language.in, "header");
-      assert.equal(language.schema.default, "en");
-      if (operation.requestBody) {
-        const media = resolve(operation.requestBody).content["application/json"];
-        assert.ok(Object.keys(media.examples).length >= 3);
-        for (const item of Object.values(media.examples)) {
-          const value = resolve(item).value;
-          validate(media.schema, value);
-          const schema = route.endsWith("upsert") ? upsertReqSchema : findNearbyReqSchema;
-          assert.ok(schema.safeParse(value).success);
-        }
-      }
-      for (const response of Object.values(operation.responses)) {
-        assert.deepEqual(resolve(resolve(response).headers["Content-Language"]).schema.enum, ["en", "fa"]);
-        assert.equal(resolve(resolve(response).headers.Vary).example, "Accept-Language");
-        const media = resolve(response).content["application/json"];
-        assert.ok(Object.keys(media.examples).length);
-        for (const item of Object.values(media.examples)) validate(media.schema, resolve(item).value);
-      }
+const express = require("express");
+
+process.env.NODE_ENV = "test";
+const { config } = require("../dist/config/env");
+const { setupSwagger, createOpenApiSpec } = require("../dist/config/swagger");
+const docsPassword = "swagger-test-password-32-characters";
+const docsAuthorization = `Basic ${Buffer.from(`docs:${docsPassword}`).toString("base64")}`;
+const withDocs = async (settings, check) => {
+  const saved = { ...config };
+  Object.assign(config, {
+    SWAGGER_ENABLED: true, SWAGGER_TRY_IT_OUT_ENABLED: true,
+    SWAGGER_AUTH_USERNAME: undefined, SWAGGER_AUTH_PASSWORD: undefined,
+    LOCATION_AUTH_MODE: "disabled", METRICS_AUTH_MODE: "disabled",
+    PRIVACY_API_ENABLED: false, BASE_URL: "/", ...settings,
+  });
+  const app = express();
+  setupSwagger(app);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  try { await check(`http://127.0.0.1:${server.address().port}`); }
+  finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(config, saved);
+  }
+};
+
+test("disabled Swagger does not expose its UI, JSON or assets", async () => {
+  await withDocs({ SWAGGER_ENABLED: false }, async (baseUrl) => {
+    for (const path of ["/api-docs/", "/api-docs/openapi.json", "/api-docs/swagger-ui-init.js"]) {
+      assert.equal((await fetch(baseUrl + path)).status, 404, path);
     }
-  }
-  const radius = spec.paths["/location/nearby"].post.parameters.find(p => p.name === "maxDistance").schema;
-  assert.equal(radius.default, 1234);
-  assert.equal(radius.maximum, 5678);
-  assert.deepEqual(radius, spec.components.schemas.NearbyRequest.properties.maxDistance);
-  const exclusion = spec.paths["/location/nearby"].post.parameters.find(p => p.name === "excludeUserId");
-  assert.equal(exclusion.schema.example, undefined, "Optional exclusion must not prefill and hide the example user");
+  });
 });
-test("authenticated production UI enables Execute and useful exploration controls by default", async () => {
-  const response = await fetch(url + "/api-docs/swagger-ui-init.js", { headers: auth });
-  assert.equal(response.status, 200);
-  const script = await response.text();
-  for (const option of ["tryItOutEnabled", "deepLinking", "displayOperationId", "displayRequestDuration", "filter", "requestSnippetsEnabled"]) {
-    assert.match(script, new RegExp('"' + option + '": true'), option);
-  }
-  assert.match(script, /"supportedSubmitMethods": \[\s*"get",\s*"post"\s*\]/);
-  assert.match(script, /"persistAuthorization": false/);
-  assert.match(script, /"queryConfigEnabled": false/);
-});
-test("documented examples execute against all four real HTTP controllers", async () => {
-  for (const path of ["/health/live", "/health/ready"]) {
-    const response = await fetch(url + path);
+
+test("live Swagger serves UI and JSON at the current origin and omits disabled routes", async () => {
+  await withDocs({}, async (baseUrl) => {
+    const page = await fetch(baseUrl + "/api-docs");
+    assert.equal(page.status, 200);
+    assert.equal(page.url, baseUrl + "/api-docs/");
+    assert.match(await page.text(), /Nearby Location API/);
+    const response = await fetch(baseUrl + "/api-docs/openapi.json");
     assert.equal(response.status, 200);
-    validate(resolve(spec.paths[path].get.responses["200"]).content["application/json"].schema, await response.json());
-  }
-  const body = spec.components.examples.UpsertTehran.value;
-  const stored = await fetch(url + "/location/upsert", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  assert.equal(stored.status, 200);
-  validate(resolve(spec.paths["/location/upsert"].post.responses["200"]).content["application/json"].schema, await stored.json());
-  const nearby = await fetch(url + "/location/nearby", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spec.components.examples.SearchCenterOnly.value) });
-  assert.equal(nearby.status, 200);
-  const result = await nearby.json();
-  validate(resolve(spec.paths["/location/nearby"].post.responses["200"]).content["application/json"].schema, result);
-  assert.equal(result.data[0].userId, body.userId);
-  assert.deepEqual(result.data[0].coordinate, body.coordinate);
-  assert.deepEqual(calls, ["ready", "upsert", "nearby"]);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const spec = await response.json();
+    assert.equal(spec.servers[0].url, "/");
+    assert.equal(spec.paths["/privacy/location/delete"], undefined);
+    assert.equal(spec.paths["/privacy/location/delete-exact"], undefined);
+    assert.deepEqual(spec.paths["/location/nearby"].post.security, []);
+    assert.deepEqual(spec.paths["/metrics"].get.security, []);
+  });
 });
-test("readiness failure matches the documented 503 schema", async () => {
-  unavailable = true;
-  const response = await fetch(url + "/health/ready");
-  assert.equal(response.status, 503);
-  validate(resolve(spec.paths["/health/ready"].get.responses["503"]).content["application/json"].schema, await response.json());
+
+test("documentation login protects HTML, JSON and JavaScript and never embeds credentials", async () => {
+  await withDocs({ SWAGGER_AUTH_USERNAME: "docs", SWAGGER_AUTH_PASSWORD: docsPassword }, async (baseUrl) => {
+    for (const path of ["/api-docs/", "/api-docs/openapi.json", "/api-docs/swagger-ui-init.js", "/api-docs/swagger-ui.css"]) {
+      for (const authorization of [undefined, "Basic invalid", "Bearer wrong", `Basic ${Buffer.from("docs:wrong").toString("base64")}`]) {
+        const response = await fetch(baseUrl + path, { headers: authorization ? { Authorization: authorization } : {} });
+        assert.equal(response.status, 401, path);
+        assert.match(response.headers.get("www-authenticate"), /^Basic /);
+        assert.equal((await response.text()).includes(docsPassword), false);
+      }
+      const response = await fetch(baseUrl + path, { headers: { Authorization: docsAuthorization } });
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal((await response.text()).includes(docsPassword), false);
+    }
+  });
 });
-test("Persian success and validation responses satisfy the same live OpenAPI contracts", async () => {
-  const headers = { "Content-Type": "application/json", "Accept-Language": "fa" };
-  for (const [path, input, status] of [
-    ["/location/upsert", spec.components.examples.UpsertTehran.value, 200],
-    ["/location/nearby", spec.components.examples.SearchCenterOnly.value, 200],
-    ["/location/upsert", { userId: "", coordinate: { lat: 0, lng: 0 } }, 400],
-  ]) {
-    const response = await fetch(url + path, { method: "POST", headers, body: JSON.stringify(input) });
-    assert.equal(response.status, status);
-    assert.equal(response.headers.get("content-language"), "fa");
-    const body = await response.json();
-    validate(resolve(spec.paths[path].post.responses[status]).content["application/json"].schema, body);
-    assert.match(body.message ?? body.data[0].updateStatus, /[\u0600-\u06ff]/);
+
+test("Swagger execution can be disabled and credentials are not persisted or sent to a validator", async () => {
+  for (const interactive of [false, true]) {
+    await withDocs({ SWAGGER_TRY_IT_OUT_ENABLED: interactive }, async (baseUrl) => {
+      const source = await (await fetch(baseUrl + "/api-docs/swagger-ui-init.js")).text();
+      assert.match(source, /"persistAuthorization": false/);
+      assert.match(source, /"validatorUrl": null/);
+      assert.match(source, /"queryConfigEnabled": false/);
+      assert.match(source, /"url": "\.\/openapi\.json"/);
+      if (interactive) assert.match(source, /"supportedSubmitMethods": \[\s*"get",\s*"post"\s*\]/);
+      else assert.match(source, /"supportedSubmitMethods": \[\]/);
+    });
   }
 });
-test("documentation still rejects unauthenticated UI and specification requests", async () => {
-  for (const path of ["/api-docs/", "/api-docs/openapi.json"]) {
-    const response = await fetch(url + path);
-    assert.equal(response.status, 401);
-    assert.match(response.headers.get("www-authenticate"), /^Basic /);
-  }
+
+test("enabled API surfaces use distinct bearer schemes and configured radius limits", async () => {
+  await withDocs({ LOCATION_AUTH_MODE: "bearer", METRICS_AUTH_MODE: "bearer", PRIVACY_API_ENABLED: true, DEFAULT_MAX_DISTANCE_METERS: 2500, MAX_MAX_DISTANCE_METERS: 8000 }, async (baseUrl) => {
+    const spec = await (await fetch(baseUrl + "/api-docs/openapi.json")).json();
+    assert.deepEqual(spec.paths["/location/nearby"].post.security, [{ locationBearerAuth: [] }]);
+    assert.deepEqual(spec.paths["/metrics"].get.security, [{ metricsBearerAuth: [] }]);
+    assert.deepEqual(spec.paths["/privacy/location/delete"].post.security, [{ privacyBearerAuth: [] }]);
+    assert.deepEqual(spec.paths["/privacy/location/delete-exact"].post.security, [{ privacyBearerAuth: [] }]);
+    const radius = spec.paths["/location/nearby"].post.parameters.find((item) => item.name === "maxDistance").schema;
+    assert.equal(radius.default, 2500);
+    assert.equal(radius.maximum, 8000);
+    assert.equal(spec.components.schemas.NearbyRequest.properties.maxDistance.maximum, 8000);
+  });
+});
+
+test("OpenAPI construction is independent of the launch directory", () => {
+  const previous = process.cwd();
+  try {
+    process.chdir(require("node:os").tmpdir());
+    const spec = createOpenApiSpec();
+    assert.ok(spec.paths["/location/nearby"].post);
+    assert.ok(spec.paths["/privacy/location/delete"].post);
+  } finally { process.chdir(previous); }
+});
+
+test("compiled production documentation works without the source directory", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { spawnSync } = require("node:child_process");
+  const temp = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "swagger-dist-"));
+  try {
+    fs.cpSync(path.resolve("dist"), path.join(temp, "dist"), { recursive: true });
+    fs.copyFileSync(path.resolve("package.json"), path.join(temp, "package.json"));
+    fs.symlinkSync(path.resolve("node_modules"), path.join(temp, "node_modules"), "junction");
+    const result = spawnSync(process.execPath, ["-e", `
+      const app=require('express')();
+      require('./dist/config/swagger').setupSwagger(app);
+      const server=app.listen(0,'127.0.0.1',async()=>{
+        try {
+          const response=await fetch('http://127.0.0.1:'+server.address().port+'/api-docs/openapi.json',{
+            headers:{Authorization:'Basic '+Buffer.from('docs:'+process.env.SWAGGER_AUTH_PASSWORD).toString('base64')}
+          });
+          if(!response.ok) throw Error('HTTP '+response.status);
+          const spec=await response.json();
+          if(!spec.paths['/location/nearby']?.post) throw Error('Missing compiled contract');
+          console.log(JSON.stringify({version:spec.info.version,server:spec.servers[0].url}));
+        } catch(error) {console.error(error.message);process.exitCode=1;}
+        finally {server.close();}
+      });
+    `], {
+      cwd: temp, encoding: "utf8", timeout: 10000,
+      env: { ...process.env, NODE_ENV: "production", DATABASE_URL: "postgresql://test.invalid/nearby", SWAGGER_ENABLED: "true", SWAGGER_AUTH_USERNAME: "docs", SWAGGER_AUTH_PASSWORD: docsPassword },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).server, "/");
+  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
