@@ -2,7 +2,7 @@
 
 Store each user's current location and discover fresh nearby users with PostgreSQL and PostGIS.
 
-**Package version:** 2.14.0 · **Runtime:** Node.js 24, TypeScript, Express · **Database baseline used by CI:** PostgreSQL 16 / PostGIS 3.4
+**Package version:** 2.14.1 · **Runtime:** Node.js 24, TypeScript, Express · **Database baseline used by CI:** PostgreSQL 16 / PostGIS 3.4
 
 [Documentation](docs/README.md) · [API](docs/API.md) · [Deployment](docs/DEPLOYMENT.md) · [Development](docs/DEVELOPMENT.md) · [Presentation](docs/PRESENTATION.md)
 
@@ -28,7 +28,7 @@ sudo docker compose up --build -d --wait --wait-timeout 180
 curl --fail http://localhost:8080/health/ready
 ```
 
-Open [Swagger UI](http://localhost:8080/api-docs/). The default Compose profile uses generated private credentials, binds HTTP to loopback, runs migrations and preserves the existing `nearby-vm_pgdata` volume. Keep the existing `.env` when upgrading; do not rerun initialization. See [development setup](docs/DEVELOPMENT.md) for running Node directly and [deployment](docs/DEPLOYMENT.md) for production configuration.
+Open [Swagger UI](http://localhost:8080/api/docs/). The default Compose profile uses generated private credentials, binds HTTP to loopback, runs migrations and preserves the existing `nearby-vm_pgdata` volume. Keep the existing `.env` when upgrading; do not rerun initialization. See [development setup](docs/DEVELOPMENT.md) for running Node directly and [deployment](docs/DEPLOYMENT.md) for production configuration.
 
 Publish a synthetic location and search around it:
 
@@ -66,6 +66,6 @@ Stop the environment with `docker compose down`. This preserves the database vol
 
 The repository contains deployment examples and validation tools. Accept a release against its exact commit/image and target environment using the [production readiness gates](docs/PRODUCTION_READINESS.md). Replica count, pool size, latency targets, recovery objectives, and retention policy require environment-specific evidence.
 
-For historical application changes, read the [changelog](CHANGELOG.md). For this release, read the [review results](docs/RELEASE_REVIEW.md) and [upgrade guide](docs/UPGRADING.md). The supplied documentation review remains a historical record.
+For historical application changes, read the [changelog](CHANGELOG.md). For this release, read the [review results](docs/REVIEW_2.14.1.md) and [upgrade guide](docs/UPGRADING.md). The supplied documentation review remains a historical record.
 
 The project uses the [ISC license](LICENSE). See [Contributing](CONTRIBUTING.md) for focused development and validation requirements.

@@ -6,10 +6,32 @@ const boolean = (env, name, fallback) => {
   throw new Error(`${name} must be true or false`);
 };
 
+// Pure validation shared by configuration, server pools, migration and tools.
+// Never include the supplied URI in a diagnostic: it may contain credentials.
+const databaseUrlError = (value) => {
+  if (value === undefined) return undefined;
+  const invalid = 'DATABASE_URL must be a valid PostgreSQL URI with URL-encoded credentials and no fragment';
+  if (typeof value !== 'string' || !/^postgres(?:ql)?:\/\//i.test(value)
+      || /[\s\\\u0000-\u001f\u007f]/.test(value) || !value.isWellFormed()
+      || /%(?![0-9a-f]{2})/i.test(value) || value.includes('#')) return invalid;
+  try {
+    const url = new URL(value);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol) || decodeURIComponent(value).includes('\u0000')) return invalid;
+  } catch { return invalid; }
+  return undefined;
+};
+
+const validateConnectionString = (value) => {
+  const error = databaseUrlError(value);
+  if (error) throw new Error(error);
+};
+
 const tlsOptions = (env = process.env) => {
   const enabled = boolean(env, "PG_SSL", false);
   const rejectUnauthorized = boolean(env, "PG_SSL_REJECT_UNAUTHORIZED", true);
-  return enabled ? { rejectUnauthorized } : undefined;
+  // Explicit false prevents ambient PGSSLMODE from changing the policy. A
+  // connection URI can still own TLS when PG_SSL=false, as documented below.
+  return enabled ? { rejectUnauthorized } : false;
 };
 
 // Operational tools must honor the same TLS switches as the application.
@@ -28,9 +50,10 @@ const withPostgresOptions = (options, env = process.env) => {
 // certificate verification. A URL can own TLS when PG_SSL=false; otherwise use
 // PG_SSL/PG_SSL_REJECT_UNAUTHORIZED without URL TLS parameters.
 const validateTlsConnectionString = (connectionString, ssl) => {
+  validateConnectionString(connectionString);
   if (!ssl || !connectionString) return;
   const url = new URL(connectionString);
-  const tlsKeys = new Set(['ssl', 'sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'uselibpqcompat', 'sslnegotiation']);
+  const tlsKeys = new Set(['ssl', 'sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'sslpassword', 'uselibpqcompat', 'sslnegotiation']);
   if ([...url.searchParams.keys()].some((key) => tlsKeys.has(key))) {
     throw new Error('DATABASE_URL TLS parameters conflict with PG_SSL=true; remove URL TLS parameters and configure PG_SSL/PG_SSL_REJECT_UNAUTHORIZED');
   }
@@ -44,4 +67,4 @@ const migrationTlsArgs = (args, env = process.env) => {
   return ["--reject-unauthorized", String(ssl.rejectUnauthorized)];
 };
 
-module.exports = { withPostgresOptions, migrationTlsArgs };
+module.exports = { withPostgresOptions, migrationTlsArgs, databaseUrlError };

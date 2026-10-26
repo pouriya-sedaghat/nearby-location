@@ -1,6 +1,15 @@
 # Changelog
 
-The 2.14.0 entry describes this consolidated release. Earlier 2.x entries retain the supplied archive's history and do not imply that corresponding GitHub tags exist in this repository. For current setup and operation, use the [documentation index](docs/README.md).
+The 2.14.0 entry describes the consolidated baseline; 2.14.1 is its reviewed routing/validation patch. Earlier 2.x entries retain the supplied archive's history and do not imply that corresponding GitHub tags exist in this repository. For current setup and operation, use the [documentation index](docs/README.md).
+
+## 2.14.1 — 2026-10-26
+
+- Move Swagger UI, JSON and assets to `/api/docs`; authenticate documentation before JSON parsing.
+- Limit documentation resources to GET/HEAD and serve HTML only at the UI root. Unknown resources/unsupported methods return English JSON 404; the previous `/api-docs` route returns 404.
+- Validate raw UTF-16 with matching BOM/byte order before JSON decoding, including malformed Unicode in ignored fields; retain valid BE/LE transports.
+- Share strict, credential-safe PostgreSQL URI validation across server configuration, migration and database tools. Reject fragments, malformed percent-encoded UTF-8 and decoded NUL in every URI component.
+- Prevent ambient PGSSLMODE from overriding explicit TLS switches while preserving documented URI-owned TLS when PG_SSL=false. Keep certificate verification policy consistent for migration/tool clients.
+- Validate cron schedules and PostgreSQL retention integer bounds before startup. Add focused regressions, update runtime/deployment versions and current documentation. The initial migration and location/privacy API contracts are unchanged.
 
 ## 2.14.0 — 2026-10-25
 

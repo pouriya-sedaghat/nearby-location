@@ -149,7 +149,7 @@ test("concurrent English and Persian requests cannot change each other's validat
 });
 
 test("documentation authentication errors follow the request language and successful documentation stays English", async () => {
-  for (const path of ["/api-docs/", "/api-docs/openapi.json", "/api-docs/swagger-ui-init.js"]) {
+  for (const path of ["/api/docs/", "/api/docs/openapi.json", "/api/docs/swagger-ui-init.js"]) {
     const denied = await fetch(url + path, { headers: { "Accept-Language": "fa" } });
     assert.equal(denied.status, 401);
     assert.equal(denied.headers.get("content-language"), "fa");

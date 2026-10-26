@@ -1,5 +1,10 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import cron from "node-cron";
+
+const { databaseUrlError } = require("../../scripts/lib/postgres-options") as {
+  databaseUrlError(value: unknown): string | undefined;
+};
 
 dotenv.config({
   path: ".env",
@@ -46,7 +51,8 @@ const optionalBearerTokenEnv = optionalSecretEnv.refine(
 );
 // Node timers clamp larger delays to 1 ms; PostgreSQL timeout settings also
 // use signed 32-bit milliseconds. Fail configuration rather than clamp it.
-const MAX_TIMEOUT_MS = 2_147_483_647;
+const MAX_POSTGRES_INTEGER = 2_147_483_647;
+const MAX_TIMEOUT_MS = MAX_POSTGRES_INTEGER;
 
 const envObjectSchema = z
   .object({
@@ -74,8 +80,8 @@ const envObjectSchema = z
       .min(1)
       .optional(),
 
-    LOCATION_TTL_DAYS: z.coerce.number().int().positive().default(7),
-    CLEANUP_CRON_SCHEDULE: z.string().min(1).default("0 3 * * *"),
+    LOCATION_TTL_DAYS: z.coerce.number().int().positive().max(MAX_POSTGRES_INTEGER).default(7),
+    CLEANUP_CRON_SCHEDULE: z.string().min(1).refine(value => cron.validate(value), "Invalid cleanup cron schedule").default("0 3 * * *"),
     CLEANUP_BATCH_SIZE: z.coerce.number().int().positive().max(50_000).default(5_000),
     CLEANUP_MAX_BATCHES_PER_RUN: z.coerce
       .number()
@@ -284,11 +290,8 @@ const envSchema = envObjectSchema
       ctx.addIssue({ code: "custom", path: ["DATABASE_URL"], message: "DATABASE_URL is required in production" });
     }
     if (env.DATABASE_URL) {
-      try {
-        const url = new URL(env.DATABASE_URL);
-        if (!['postgres:', 'postgresql:'].includes(url.protocol) || /[\s\\]/.test(env.DATABASE_URL)) throw new Error();
-        for (const part of [url.username, url.password, url.pathname]) decodeURIComponent(part);
-      } catch { ctx.addIssue({ code: "custom", path: ["DATABASE_URL"], message: "Use a valid PostgreSQL connection URI with URL-encoded credentials" }); }
+      const error = databaseUrlError(env.DATABASE_URL);
+      if (error) ctx.addIssue({ code: "custom", path: ["DATABASE_URL"], message: error });
     }
     const swaggerEnabled = env.SWAGGER_ENABLED ?? env.NODE_ENV === "development";
     const hasSwaggerUsername = Boolean(env.SWAGGER_AUTH_USERNAME);

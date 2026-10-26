@@ -1,6 +1,6 @@
 {
   "name": "nearby-location",
-  "version": "2.14.0",
+  "version": "2.14.1",
   "description": "Microservice for storing user location and finding nearby users (PostgreSQL + PostGIS).",
   "main": "dist/server.js",
   "scripts": {

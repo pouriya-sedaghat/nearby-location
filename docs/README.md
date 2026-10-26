@@ -1,6 +1,6 @@
 # Documentation
 
-These English guides describe version **2.14.0**. See [Release review](RELEASE_REVIEW.md) for executed checks and [Upgrading](UPGRADING.md) for migration from the published 1.0.0 or supplied 2.13.5 source. Identify deployments by commit and immutable image digest. Commands run from the repository root unless a guide says otherwise.
+These English guides describe version **2.14.1**. See [Release review](REVIEW_2.14.1.md) for executed checks and [Upgrading](UPGRADING.md) for migration from the published 1.0.0 or supplied 2.13.5 source. Identify deployments by commit and immutable image digest. Commands run from the repository root unless a guide says otherwise.
 
 ## Reading paths
 
@@ -60,13 +60,13 @@ GitHub renders the fenced Mermaid diagrams directly. Their surrounding text expl
 
 ## Source and maintenance
 
-The supplied [historical documentation review](DOCUMENTATION_REVIEW.md) records earlier source work. The current [release review](RELEASE_REVIEW.md) and exact deployed commit/image define acceptance evidence. Update guides alongside source changes using the [maintenance workflow](DEVELOPMENT.md#maintain-the-documentation).
+The supplied [historical documentation review](DOCUMENTATION_REVIEW.md) records earlier source work. The current [release review](REVIEW_2.14.1.md) and exact deployed commit/image define acceptance evidence. Update guides alongside source changes using the [maintenance workflow](DEVELOPMENT.md#maintain-the-documentation).
 
 The [changelog](../CHANGELOG.md) preserves release history. Superseded narrative guides and dated evaluation reports are available through Git history; their historical measurements are not current acceptance evidence.
 
 ## Release and compatibility
 
-- [Release review](RELEASE_REVIEW.md): executed checks and remaining acceptance work.
-- [Upgrading to 2.14.0](UPGRADING.md): existing VM credentials/volume and supplied-source compatibility.
+- [Release review](REVIEW_2.14.1.md): executed checks and remaining acceptance work.
+- [Upgrading to 2.14.1](UPGRADING.md): existing VM credentials/volume and supplied-source compatibility.
 - [Ubuntu VM deployment](VM_UBUNTU.md): private default deployment.
 - [Interactive Swagger](SWAGGER.md): language, authentication and execution workflow.

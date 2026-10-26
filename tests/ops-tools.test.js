@@ -66,7 +66,7 @@ test("operational pools honor TLS verification and bound connection acquisition"
   assert.deepEqual(options.ssl, { rejectUnauthorized: true });
   assert.equal(options.connectionTimeoutMillis, 5000);
   assert.equal(options.max, 1);
-  assert.equal(withPostgresOptions({}, {}).ssl, undefined);
+  assert.equal(withPostgresOptions({}, {}).ssl, false);
   assert.deepEqual(withPostgresOptions({}, { PG_SSL: "true", PG_SSL_REJECT_UNAUTHORIZED: "false", PG_CONN_TIMEOUT_MS: "1000" }), {
     ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 1000,
   });

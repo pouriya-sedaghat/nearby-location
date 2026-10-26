@@ -44,6 +44,8 @@ The tables list every application variable. Numeric values use the units in the 
 
 **TLS configuration:** use one owner. With `PG_SSL=true`, remove URL parameters `ssl`, `sslmode`, `sslcert`, `sslkey`, `sslrootcert`, `uselibpqcompat`, and `sslnegotiation`; conflicting configuration is rejected. Alternatively let the connection URL own TLS while `PG_SSL=false`, and review those URL semantics explicitly. Prefer verified TLS and provision trusted certificates through the deployment platform. Server and database tools share [these checks](../scripts/lib/postgres-options.js).
 
+The same conflict check also rejects `sslpassword`. `PGSSLMODE` inherited from the process environment does not override the explicit `PG_SSL` policy; URI-owned TLS remains supported when `PG_SSL=false`. Migration children receive the matching explicit fallback mode. PostgreSQL URIs must have valid percent-encoded UTF-8 in every component, contain no raw fragment and decode to no NUL; failures do not echo credential values. Cleanup cron expressions are validated during configuration parsing, and `LOCATION_TTL_DAYS` must fit PostgreSQL's positive signed 32-bit integer parameter.
+
 The supplied Kubernetes Secret example has no URL TLS parameters, so it matches the ConfigMap's explicit verified TLS (`PG_SSL=true`, `PG_SSL_REJECT_UNAUTHORIZED=true`); a regression test loads the unchanged pair through the server and migration checks. Keep URL TLS parameters out of your real Secret while the ConfigMap owns TLS. See [deployment preparation](DEPLOYMENT.md#prepare-cluster-specific-files).
 
 ## Search and ranking

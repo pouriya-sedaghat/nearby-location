@@ -29,7 +29,7 @@ let server, dom;
 (async () => {
   try {
     server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
-    dom = await JSDOM.fromURL("http://127.0.0.1:" + server.address().port + "/api-docs/", {
+    dom = await JSDOM.fromURL("http://127.0.0.1:" + server.address().port + "/api/docs/", {
       resources: "usable", runScripts: "dangerously", pretendToBeVisual: true,
       virtualConsole: new VirtualConsole(),
       beforeParse(window) {

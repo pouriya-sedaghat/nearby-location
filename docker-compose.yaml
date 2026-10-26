@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
-    image: nearby-location:2.14.0
+    image: nearby-location:2.14.1
     init: true
     restart: unless-stopped
     stop_grace_period: 60s
