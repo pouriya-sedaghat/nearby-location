@@ -14,7 +14,7 @@
 | Wire Unicode | Generic UTF-16 now selects the decoder using its BOM or initial ASCII JSON code unit. Malformed wire Unicode is rejected even in fields the request schema ignores; valid BE/LE, with/without BOM, remain supported. |
 | PostgreSQL URI | One pure validator covers configuration, server/tool pools and migration. Every URI component must contain valid escaped UTF-8; fragments, malformed escapes, ill-formed Unicode and decoded NUL fail without echoing credentials. |
 | TLS owner | Explicit `ssl: false` prevents ambient PGSSLMODE from changing the off policy. Migration children get the matching fallback. URI-owned TLS remains supported with PG_SSL=false; conflicting URI options are refused with PG_SSL=true. |
-| Fail-fast configuration | Invalid cron expressions and retention values beyond PostgreSQL's signed integer parameter fail before database startup work. |
+| Fail-fast configuration | Invalid cron expressions and retention values beyond PostgreSQL's signed integer parameter fail during application configuration parsing, before the server's connection retries and cleanup setup. Docker entrypoint migrations have their own URI/TLS validation and run before the server starts. |
 | Documentation/distribution | Current URLs, examples, image versions, package/lock/OpenAPI version and upgrade notes identify 2.14.1. Source checksums are regenerated; historical 2.14.0 evidence remains available. |
 
 Nine focused boundary tests were added before implementation: eight failed on the baseline and one existing valid-UTF-16 transport case passed. They pass after the corrections. Existing configuration, HTTP, OpenAPI, operational and DOM tests also exercise the corrected paths.
