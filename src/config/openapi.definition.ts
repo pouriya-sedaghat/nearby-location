@@ -3,7 +3,7 @@ export const openApiDefinition: Record<string, any> = {
   "openapi": "3.0.0",
   "info": {
     "title": "Nearby Location API",
-    "version": "2.14.0",
+    "version": "2.14.1",
     "description": "Microservice to store user location and find nearby users with PostgreSQL + PostGIS"
   },
   "servers": [

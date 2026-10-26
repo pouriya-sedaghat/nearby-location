@@ -45,7 +45,7 @@ spec:
                     app.kubernetes.io/name: nearby-location
       containers:
         - name: nearby-location
-          image: nearby-location:2.14.0
+          image: nearby-location:2.14.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

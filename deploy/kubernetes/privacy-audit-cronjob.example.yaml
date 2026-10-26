@@ -30,7 +30,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: privacy-audit
-              image: nearby-location:2.14.0
+              image: nearby-location:2.14.1
               imagePullPolicy: IfNotPresent
               command: ["node", "scripts/audit-privacy-retention.js"]
               envFrom:

@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/name: nearby-location-canary
     app.kubernetes.io/part-of: nearby-location
     app.kubernetes.io/component: api
-    app.kubernetes.io/version: "2.14.0"
+    app.kubernetes.io/version: "2.14.1"
     app.kubernetes.io/track: canary
 spec:
   replicas: 1
@@ -27,7 +27,7 @@ spec:
         app.kubernetes.io/name: nearby-location-canary
         app.kubernetes.io/part-of: nearby-location
         app.kubernetes.io/component: api
-        app.kubernetes.io/version: "2.14.0"
+        app.kubernetes.io/version: "2.14.1"
         app.kubernetes.io/track: canary
       annotations:
         prometheus.io/scrape: "true"
@@ -42,7 +42,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: nearby-location
-          image: nearby-location:2.14.0
+          image: nearby-location:2.14.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

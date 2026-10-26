@@ -15,7 +15,7 @@ There is no tenant discriminator, per-user access-control list, consent field, o
 | `/location/*` | `LOCATION_AUTH_MODE=bearer` and primary/optional previous token | Trusted location backend |
 | `/metrics` | `METRICS_AUTH_MODE=bearer` and metrics token | Authorized scraper/operator |
 | `/privacy/*` | `PRIVACY_API_ENABLED=true` and dedicated privacy token | Account/privacy control plane |
-| `/api-docs/*` | Swagger enabled; dedicated username/password outside development | Documentation operator; separate HTTP Basic auth |
+| `/api/docs/*` | Swagger enabled; dedicated username/password outside development | Documentation operator; separate HTTP Basic auth |
 | `/health/*` | No application token | Restrict exposure through network/ingress as appropriate |
 
 Use independent random credentials, at least 32 characters, and verified transport. Bearer tokens must be printable ASCII without spaces. Authentication runs before body parsing for protected API surfaces. Credential equality uses timing-safe comparisons; failures are non-enumerating 401 responses. See [rotation and rollout](OPERATIONS.md#credential-and-cursor-key-rotation).
@@ -67,4 +67,4 @@ Docker, CI and documented installs use `npm ci --ignore-scripts`; the reviewed g
 
 Body decoding verifies UTF-8 and UTF-16 before identifier validation, including compressed input. Per-request language selection does not mutate global validator locale; response keys and machine codes stay stable. HTTP metric methods/routes are normalized to bounded values. Release image and namespace inputs are validated before YAML rendering or cluster changes. The source packager uses an explicit allowlist and rejects supported-path symlinks, while excluding live secrets, exports and build output.
 
-See [Release review](RELEASE_REVIEW.md) for the dated dependency audit, executed tests and remaining acceptance work.
+See [Release review](REVIEW_2.14.1.md) for the dated dependency audit, executed tests and remaining acceptance work.

@@ -28,7 +28,7 @@ const withDocs = async (settings, check) => {
 
 test("disabled Swagger does not expose its UI, JSON or assets", async () => {
   await withDocs({ SWAGGER_ENABLED: false }, async (baseUrl) => {
-    for (const path of ["/api-docs/", "/api-docs/openapi.json", "/api-docs/swagger-ui-init.js"]) {
+    for (const path of ["/api/docs/", "/api/docs/openapi.json", "/api/docs/swagger-ui-init.js"]) {
       assert.equal((await fetch(baseUrl + path)).status, 404, path);
     }
   });
@@ -36,11 +36,11 @@ test("disabled Swagger does not expose its UI, JSON or assets", async () => {
 
 test("live Swagger serves UI and JSON at the current origin and omits disabled routes", async () => {
   await withDocs({}, async (baseUrl) => {
-    const page = await fetch(baseUrl + "/api-docs");
+    const page = await fetch(baseUrl + "/api/docs");
     assert.equal(page.status, 200);
-    assert.equal(page.url, baseUrl + "/api-docs/");
+    assert.equal(page.url, baseUrl + "/api/docs/");
     assert.match(await page.text(), /Nearby Location API/);
-    const response = await fetch(baseUrl + "/api-docs/openapi.json");
+    const response = await fetch(baseUrl + "/api/docs/openapi.json");
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     const spec = await response.json();
@@ -54,7 +54,7 @@ test("live Swagger serves UI and JSON at the current origin and omits disabled r
 
 test("documentation login protects HTML, JSON and JavaScript and never embeds credentials", async () => {
   await withDocs({ SWAGGER_AUTH_USERNAME: "docs", SWAGGER_AUTH_PASSWORD: docsPassword }, async (baseUrl) => {
-    for (const path of ["/api-docs/", "/api-docs/openapi.json", "/api-docs/swagger-ui-init.js", "/api-docs/swagger-ui.css"]) {
+    for (const path of ["/api/docs/", "/api/docs/openapi.json", "/api/docs/swagger-ui-init.js", "/api/docs/swagger-ui.css"]) {
       for (const authorization of [undefined, "Basic invalid", "Bearer wrong", `Basic ${Buffer.from("docs:wrong").toString("base64")}`]) {
         const response = await fetch(baseUrl + path, { headers: authorization ? { Authorization: authorization } : {} });
         assert.equal(response.status, 401, path);
@@ -72,7 +72,7 @@ test("documentation login protects HTML, JSON and JavaScript and never embeds cr
 test("Swagger execution can be disabled and credentials are not persisted or sent to a validator", async () => {
   for (const interactive of [false, true]) {
     await withDocs({ SWAGGER_TRY_IT_OUT_ENABLED: interactive }, async (baseUrl) => {
-      const source = await (await fetch(baseUrl + "/api-docs/swagger-ui-init.js")).text();
+      const source = await (await fetch(baseUrl + "/api/docs/swagger-ui-init.js")).text();
       assert.match(source, /"persistAuthorization": false/);
       assert.match(source, /"validatorUrl": null/);
       assert.match(source, /"queryConfigEnabled": false/);
@@ -85,7 +85,7 @@ test("Swagger execution can be disabled and credentials are not persisted or sen
 
 test("enabled API surfaces use distinct bearer schemes and configured radius limits", async () => {
   await withDocs({ LOCATION_AUTH_MODE: "bearer", METRICS_AUTH_MODE: "bearer", PRIVACY_API_ENABLED: true, DEFAULT_MAX_DISTANCE_METERS: 2500, MAX_MAX_DISTANCE_METERS: 8000 }, async (baseUrl) => {
-    const spec = await (await fetch(baseUrl + "/api-docs/openapi.json")).json();
+    const spec = await (await fetch(baseUrl + "/api/docs/openapi.json")).json();
     assert.deepEqual(spec.paths["/location/nearby"].post.security, [{ locationBearerAuth: [] }]);
     assert.deepEqual(spec.paths["/metrics"].get.security, [{ metricsBearerAuth: [] }]);
     assert.deepEqual(spec.paths["/privacy/location/delete"].post.security, [{ privacyBearerAuth: [] }]);
@@ -115,13 +115,14 @@ test("compiled production documentation works without the source directory", () 
   try {
     fs.cpSync(path.resolve("dist"), path.join(temp, "dist"), { recursive: true });
     fs.copyFileSync(path.resolve("package.json"), path.join(temp, "package.json"));
+    fs.cpSync(path.resolve("scripts/lib"), path.join(temp, "scripts/lib"), { recursive: true });
     fs.symlinkSync(path.resolve("node_modules"), path.join(temp, "node_modules"), "junction");
     const result = spawnSync(process.execPath, ["-e", `
       const app=require('express')();
       require('./dist/config/swagger').setupSwagger(app);
       const server=app.listen(0,'127.0.0.1',async()=>{
         try {
-          const response=await fetch('http://127.0.0.1:'+server.address().port+'/api-docs/openapi.json',{
+          const response=await fetch('http://127.0.0.1:'+server.address().port+'/api/docs/openapi.json',{
             headers:{Authorization:'Basic '+Buffer.from('docs:'+process.env.SWAGGER_AUTH_PASSWORD).toString('base64')}
           });
           if(!response.ok) throw Error('HTTP '+response.status);

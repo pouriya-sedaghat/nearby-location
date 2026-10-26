@@ -13,7 +13,7 @@ This guide runs application `1.0.0` and PostGIS on the same Ubuntu Server 26.04 
 | Database image | `postgis/postgis:16-3.6-alpine` |
 | Database access | Docker network hostname `postgres`, port 5432; no host port published |
 | Application access | VM loopback `127.0.0.1:8080` by default |
-| Documentation | `/api-docs/`, dedicated generated Basic Auth credentials, Execute enabled |
+| Documentation | `/api/docs/`, dedicated generated Basic Auth credentials, Execute enabled |
 | Stored data | Named volume `nearby-vm_pgdata` |
 | Database identity | Database/user `nearby`; generated password shared by migration and application connections |
 | Service restart | `unless-stopped`; Docker must be enabled at host boot |
@@ -142,7 +142,7 @@ For browser access from your workstation, open a tunnel in a separate terminal, 
 ssh -N -L 8080:127.0.0.1:8080 vm-user@VM_IP
 ```
 
-Open `http://127.0.0.1:8080/api-docs/` on the workstation. Use `docs_operator` and the generated `SWAGGER_AUTH_PASSWORD` from the VM's `.env`. The HTTP connection is carried through SSH. Follow the [Swagger guide](SWAGGER.md) to execute all four operations.
+Open `http://127.0.0.1:8080/api/docs/` on the workstation. Use `docs_operator` and the generated `SWAGGER_AUTH_PASSWORD` from the VM's `.env`. The HTTP connection is carried through SSH. Follow the [Swagger guide](SWAGGER.md) to execute all four operations.
 
 ## 6. Connect company clients
 

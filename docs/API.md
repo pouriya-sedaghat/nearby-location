@@ -21,8 +21,8 @@ The examples below use `http://localhost:8080` and a protected service with `LOC
 | GET | `/health/live` | 200 JSON | No application authentication |
 | GET | `/health/ready` | 200 JSON or 503 | No application authentication |
 | GET | `/metrics` | 200 Prometheus text | Metrics bearer token when enabled |
-| GET | `/api-docs/` | Swagger UI | Optional; Basic authentication outside development |
-| GET | `/api-docs/openapi.json` | Runtime OpenAPI JSON | Same documentation authentication |
+| GET | `/api/docs/` | Swagger UI | Optional; Basic authentication outside development |
+| GET | `/api/docs/openapi.json` | Runtime OpenAPI JSON | Same documentation authentication |
 
 Tokens identify a trusted service, not the end user. `userId` and `excludeUserId` do not establish ownership or permission to see another user's coordinates.
 
@@ -264,7 +264,7 @@ Both languages use UTC Gregorian calendar anniversaries, preserving time of day 
 
 Use the browser's documentation login, then choose Swagger **Authorize** and enter the relevant bearer token without the `Bearer` prefix. Execution is available only when enabled. Keep production UI view-only unless an operator has a concrete need to execute requests.
 
-The committed [OpenAPI file](openapi.json) describes all features and configured generation defaults. The live `/api-docs/openapi.json` reflects enabled privacy routes, current authentication, and runtime radius settings. `BASE_URL` changes the OpenAPI server URL; it does not move Express routes or configure proxy rewriting.
+The committed [OpenAPI file](openapi.json) describes all features and configured generation defaults. The live `/api/docs/openapi.json` reflects enabled privacy routes, current authentication, and runtime radius settings. `BASE_URL` changes the OpenAPI server URL; it does not move Express routes or configure proxy rewriting.
 
 Regenerate deterministically with `npm run docs:api`. CI checks for drift. See [development maintenance](DEVELOPMENT.md#maintain-the-documentation).
 

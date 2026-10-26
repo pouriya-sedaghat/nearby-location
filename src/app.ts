@@ -39,16 +39,25 @@ app.use("/location", authorizationMiddleware("location"));
 if (config.PRIVACY_API_ENABLED) {
   app.use("/privacy", authorizationMiddleware("privacy"));
 }
+// Authenticate documentation before inspecting bodies; the UI has no JSON
+// request-body contract and must not expose parser errors before login.
+setupSwagger(app);
 app.use(express.json({ limit: "32kb", verify: (_req, _res, body, encoding) => {
-  try { new TextDecoder(encoding, { fatal: true }).decode(body); }
-  catch (error) { throw Object.assign(new Error("Invalid JSON body encoding"), { status: error instanceof RangeError ? 415 : 400, type: "entity.parse.failed" }); }
+  const charset = encoding.toLowerCase();
+  const decoder = charset === "utf-8" ? "utf-8"
+    : charset === "utf-16le" || charset === "utf-16be" ? charset
+    : charset === "utf-16" ? ((body[0] === 0xfe && body[1] === 0xff) || body[0] === 0 ? "utf-16be" : "utf-16le")
+    : undefined;
+  // JSON starts with an ASCII code unit (possibly whitespace). Use that unit
+  // or the BOM for generic UTF-16; TextDecoder's UTF-16 alias always means LE.
+  if (!decoder) throw Object.assign(new Error("Unsupported JSON body encoding"), { status: 415 });
+  try { new TextDecoder(decoder, { fatal: true }).decode(body); }
+  catch { throw Object.assign(new Error("Invalid JSON body encoding"), { status: 400, type: "entity.parse.failed" }); }
 } }));
 app.use("/location", locationRoutes);
 if (config.PRIVACY_API_ENABLED) {
   app.use("/privacy", privacyRoutes);
 }
-
-setupSwagger(app);
 
 app.use((_req: Request, res: Response) => {
   return res.status(404).json({

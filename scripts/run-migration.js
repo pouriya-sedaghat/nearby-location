@@ -21,9 +21,16 @@ const cli = path.resolve(
   "../node_modules/node-pg-migrate/bin/node-pg-migrate.js",
 );
 
-const result = spawnSync(process.execPath, [cli, action, ...args, ...migrationTlsArgs(args)], {
+let tlsArgs;
+try { tlsArgs = migrationTlsArgs(args); }
+catch (error) {
+  console.error(error instanceof Error ? error.message : "Invalid migration configuration");
+  process.exit(1);
+}
+const migrationEnv = { ...process.env, PGSSLMODE: process.env.PG_SSL === "true" ? "require" : "disable" };
+const result = spawnSync(process.execPath, [cli, action, ...args, ...tlsArgs], {
   stdio: "inherit",
-  env: process.env,
+  env: migrationEnv,
 });
 
 if (result.error) {

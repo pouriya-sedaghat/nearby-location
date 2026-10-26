@@ -29,7 +29,7 @@ NEARBY_BUILD_SHA="$(git rev-parse HEAD)"
 docker build --target production -t "nearby-location:$NEARBY_BUILD_SHA" .
 ```
 
-Tag/push according to your registry workflow and record the resulting `repository@sha256:<64 hex>` reference. The package reports 2.14.0. Use the recorded digest for deployment rather than reusing a mutable tag. The repository's CI builds a test image; it does not publish a production image. The release workflow accepts an existing immutable image; it does not build one.
+Tag/push according to your registry workflow and record the resulting `repository@sha256:<64 hex>` reference. The package reports 2.14.1. Use the recorded digest for deployment rather than reusing a mutable tag. The repository's CI builds a test image; it does not publish a production image. The release workflow accepts an existing immutable image; it does not build one.
 
 ## Database preparation
 

@@ -228,4 +228,4 @@ npm run build
 NODE_PATH="$(pwd)/../nearby-swagger-dom-tools/node_modules" SWAGGER_DOM_TESTS=true node --test tests/swagger.dom.test.js
 ```
 
-These checks verify live Execute, named examples, language input, localized results, snippets, duration, filtering and the explicit read-only override. They do not establish Chrome/Firefox layout quality or real database execution. See [Release review](RELEASE_REVIEW.md) for the executed release snapshot.
+These checks verify live Execute, named examples, language input, localized results, snippets, duration, filtering and the explicit read-only override. They do not establish Chrome/Firefox layout quality or real database execution. See [Release review](REVIEW_2.14.1.md) for the executed release snapshot.

@@ -1,7 +1,8 @@
-import express, { Express } from "express";
+import express, { Express, RequestHandler } from "express";
 import { config } from "./env";
 import { swaggerAuthorizationMiddleware } from "../middleware/swagger-auth.middleware";
 import { buildOpenApiSpec } from "./openapi";
+import { message } from "../i18n/messages";
 export const createOpenApiSpec = (options: { runtime?: boolean } = {}) => buildOpenApiSpec(config, options);
 
 export function setupSwagger(app: Express) {
@@ -11,6 +12,15 @@ export function setupSwagger(app: Express) {
   const router = express.Router();
   router.use(swaggerAuthorizationMiddleware());
   router.use((_req, res, next) => { res.setHeader("Content-Language", "en"); next(); });
+  const notFound: RequestHandler = (_req, res) => res.status(404).json({
+    success: false, message: message("en", "notFound"),
+  });
+  // Documentation resources are read-only. Swagger Execute calls the API's
+  // own routes; it never posts a request to this documentation namespace.
+  router.use((req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD") return next();
+    return notFound(req, res, next);
+  });
   router.get("/openapi.json", (_req, res) => res.json(specs));
   const options = {
     customSiteTitle: "Nearby Location API " + specs.info.version,
@@ -25,7 +35,9 @@ export function setupSwagger(app: Express) {
       supportedSubmitMethods: config.SWAGGER_TRY_IT_OUT_ENABLED ? ["get", "post"] : [],
     },
   };
-  router.use(swaggerUi.serveFiles(undefined, options), swaggerUi.setup(null, options));
+  router.use(swaggerUi.serveFiles(undefined, options));
+  router.get("/", swaggerUi.setup(null, options));
+  router.use(notFound);
 
-  app.use("/api-docs", router);
+  app.use("/api/docs", router);
 }

@@ -1,5 +1,7 @@
 # 2.14.0 release review
 
+This is the historical baseline review. See [the 2.14.1 review](REVIEW_2.14.1.md) for the current Swagger and validation patch.
+
 [Documentation index](README.md) · [Upgrade guide](UPGRADING.md)
 
 **Review date:** 2026-10-25. **Runtime:** Node.js 24.22.1 / npm 11.9.0. **Application:** 2.14.0.

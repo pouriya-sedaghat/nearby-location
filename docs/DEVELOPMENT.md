@@ -19,7 +19,7 @@ NODE_ENV=development docker compose --project-directory . -f deploy/compose.deve
 curl --fail http://localhost:8080/health/ready
 ```
 
-The API is at `http://localhost:8080`; Swagger is at `/api-docs/`. The database is internal to the Compose network and is not published to the host. The development Compose profile replaces `DATABASE_URL` with its internal database URL. Source is copied into the development image rather than bind-mounted, so host changes require rebuilding/recreating the container.
+The API is at `http://localhost:8080`; Swagger is at `/api/docs/`. The database is internal to the Compose network and is not published to the host. The development Compose profile replaces `DATABASE_URL` with its internal database URL. Source is copied into the development image rather than bind-mounted, so host changes require rebuilding/recreating the container.
 
 Use `docker compose --project-directory . -f deploy/compose.development.yaml logs --tail 100 nearby` for diagnostics and `docker compose --project-directory . -f deploy/compose.development.yaml down` to stop while retaining data. A pre-existing PostgreSQL volume preserves its original initialization and credentials.
 
@@ -128,4 +128,4 @@ Use a clean checkout/environment for the committed contract. CI uses `NODE_ENV=t
 npm run release:source
 ```
 
-Python 3 produces `nearby-location-postgis-v2.14.0.zip` with deterministic timestamps, LF text, and executable shell metadata. The packager excludes local environment files except `.env.example`, build/dependency directories, VM reports, ZIP files, and the known real Kubernetes Secret path. An explicit path allowlist is used in both Git checkouts and extracted archives; unrelated exports and supported-path symbolic links are rejected or excluded. A SHA256SUMS manifest covers all distributed source files except itself. The application production image does not contain Python or development tooling.
+Python 3 produces `nearby-location-postgis-v2.14.1.zip` with deterministic timestamps, LF text, and executable shell metadata. The packager excludes local environment files except `.env.example`, build/dependency directories, VM reports, ZIP files, and the known real Kubernetes Secret path. An explicit path allowlist is used in both Git checkouts and extracted archives; unrelated exports and supported-path symbolic links are rejected or excluded. A SHA256SUMS manifest covers all distributed source files except itself. The application production image does not contain Python or development tooling.

@@ -2,7 +2,7 @@
 
 [Documentation index](README.md) · [Overview](OVERVIEW.md) · [Architecture](ARCHITECTURE.md)
 
-**Audience:** engineering, product, and operations stakeholders. **Duration:** approximately 12–15 minutes plus questions. **Source presented:** package version 2.14.0; pair it with its reviewed commit/image digest. Use synthetic data for the demo and insert your own accepted commit/image and environment evidence where indicated.
+**Audience:** engineering, product, and operations stakeholders. **Duration:** approximately 12–15 minutes plus questions. **Source presented:** package version 2.14.1; pair it with its reviewed commit/image digest. Use synthetic data for the demo and insert your own accepted commit/image and environment evidence where indicated.
 
 Each section contains concise slide content and a spoken explanation. The technical diagrams render in GitHub; the architecture guide provides additional diagrams for questions.
 

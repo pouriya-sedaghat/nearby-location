@@ -1,10 +1,23 @@
-# Upgrade to 2.14.0
+# Upgrade to 2.14.1
 
-[Documentation index](README.md) · [Release review](RELEASE_REVIEW.md)
+[Documentation index](README.md) · [Release review](REVIEW_2.14.1.md)
+
+Version 2.14.1 applies the Swagger routing and validation corrections to the consolidated 2.14.0 baseline. The database migration and location/privacy response contracts are unchanged.
+
+
+## From 2.14.0
+
+- Swagger moved from `/api-docs/` to `/api/docs/`; its JSON is `/api/docs/openapi.json`. Update proxy rules, bookmarks and documentation clients. The previous path returns 404. GET/HEAD serve documentation; unsupported methods and unknown documentation resources return JSON 404. Execute continues to use the actual API routes.
+- No database migration, credential regeneration, volume change or location/privacy API payload change is required. Preserve the existing `.env` and `nearby-vm_pgdata` volume.
+- Invalid PostgreSQL URIs (fragments, malformed percent escapes/UTF-8 and NUL) now fail before connecting, without printing credentials. With `PG_SSL=false`, ambient `PGSSLMODE` no longer turns TLS on; explicit URI-owned TLS remains supported. With `PG_SSL=true`, keep TLS parameters out of the URI.
+- Invalid cleanup schedules and retention values above PostgreSQL's signed integer bound fail at configuration parsing.
+- Build/deploy the new image and recreate the service; changing this source does not modify an already-exported 1.0.0 image or an existing container.
+
+## Earlier baseline upgrades
 
 Version 2.14.0 consolidates the supplied 2.13.5 source and its pending corrections with the published 1.0.0 service. The minor version identifies bilingual responses and the previously unreleased corrections relative to the supplied source. Compared with the published 1.0.0, the 2.x line adds cursor/ranking/privacy/observability controls. The initial database migration is byte-identical to the published migration; no schema change, password regeneration or data conversion is required for the existing VM.
 
-## Existing 1.0.0 VM
+### Existing 1.0.0 VM
 
 1. Record the running commit/image and take a verified database backup using the existing deployment credentials. Keep rollback source/image available.
 2. Preserve the current `.env`, Compose project `nearby-vm`, database role/database `nearby` and volume `nearby-vm_pgdata`. Update only tracked source files. Do not run `init-env.sh` again and do not remove volumes or run `migrate:down`.
@@ -23,7 +36,7 @@ Do not publish the output of an unredacted `docker compose config`: it contains 
 
 Offset results retain existing fields and add ranking/pagination metadata and an optional continuation cursor. Readiness can add a circuit-state field. Clients should tolerate additive fields and use HTTP status, machine codes and validation paths rather than parsing human text.
 
-## Supplied 2.13.5 installations
+### Supplied 2.13.5 installations
 
 The default root Compose now follows the existing private VM profile. The supplied disposable root profile is retained as `deploy/compose.development.yaml`. It keeps its explicit `postgres-data` volume name and example database identity; it is a separate development path, not an automatic migration into `nearby-vm_pgdata`. Stop any old containers with their original configuration before switching profiles, and verify the selected volume/database. Do not attach an existing PostgreSQL volume to newly generated credentials or another role/database identity.
 
@@ -41,7 +54,7 @@ Stop upstream publishing before erasure. Normalized deletion follows the write i
 
 ## Kubernetes examples
 
-The examples now reference 2.14.0, while release automation continues to require an immutable image digest. The stable Deployment selector includes `app.kubernetes.io/component: api` to keep maintenance pods out of its pod/HPA selection. A Deployment's selector is immutable: do not blindly apply this change to an existing selector. Plan a parallel replacement or a maintenance-window recreation with your routing/PDB/capacity policy. Review the rendered manifests before cluster changes. No cluster action is performed by updating this repository.
+The current examples reference 2.14.1, while release automation continues to require an immutable image digest. The stable Deployment selector includes `app.kubernetes.io/component: api` to keep maintenance pods out of its pod/HPA selection. A Deployment's selector is immutable: do not blindly apply this change to an existing selector. Plan a parallel replacement or a maintenance-window recreation with your routing/PDB/capacity policy. Review the rendered manifests before cluster changes. No cluster action is performed by updating this repository.
 
 ## Rollback
 
